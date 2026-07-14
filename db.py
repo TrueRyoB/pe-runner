@@ -57,17 +57,46 @@ def _is_unique_violation(exc: Exception) -> bool:
         "unique" in str(exc).lower()
 
 
+_SNOWFLAKE_TABLES = ("participants", "contests", "contest_participants",
+                     "solves", "votes", "performances")
+_SNOWFLAKE_COLS = {"discord_id", "guild_id", "channel_id",
+                   "leaderboard_message_id", "join_message_id", "created_by"}
+
+
 def init():
+    _fix_snowflake_tables()   # recreate any wrong-typed EMPTY tables (no data loss)
     schema = Path(__file__).with_name("schema.sql").read_text()
     conn().executescript(schema)
     conn().commit()
     _migrate()
 
 
+def _fix_snowflake_tables():
+    """Older tables stored snowflake IDs as INTEGER (precision-lossy on libSQL).
+    Drop and recreate ONLY tables that are still INTEGER-typed AND empty — so this
+    never destroys data. Fresh installs are unaffected."""
+    for t in _SNOWFLAKE_TABLES:
+        try:
+            info = _rows(f"PRAGMA table_info({t})")
+        except Exception:
+            continue
+        if not info:
+            continue  # table doesn't exist yet — executescript will create it (TEXT)
+        int_snow = any(r["name"] in _SNOWFLAKE_COLS and
+                       (r["type"] or "").upper() == "INTEGER" for r in info)
+        if not int_snow:
+            continue
+        try:
+            n = _row(f"SELECT COUNT(*) AS n FROM {t}")["n"]
+        except Exception:
+            continue
+        if n == 0:
+            _write(f"DROP TABLE {t}")
+
+
 def _migrate():
-    # Add columns that existing (already-created) tables may lack. SQLite/libSQL
-    # has no "ADD COLUMN IF NOT EXISTS", so try and ignore "duplicate column".
-    for col, decl in (("join_message_id", "INTEGER"), ("draw_epoch", "INTEGER")):
+    # Add columns that existing tables may lack (no-op if present).
+    for col, decl in (("join_message_id", "TEXT"), ("draw_epoch", "INTEGER")):
         try:
             _write(f"ALTER TABLE contests ADD COLUMN {col} {decl}")
         except Exception:
@@ -82,12 +111,12 @@ def upsert_participant(discord_id: int, pe_username: str, friend_key: str | None
         "VALUES (?,?,?,?) "
         "ON CONFLICT(discord_id) DO UPDATE SET pe_username=excluded.pe_username, "
         "friend_key=excluded.friend_key",
-        (discord_id, pe_username, friend_key, _now_iso()),
+        (str(discord_id), pe_username, friend_key, _now_iso()),
     )
 
 
 def get_participant(discord_id: int) -> dict | None:
-    return _row("SELECT * FROM participants WHERE discord_id=?", (discord_id,))
+    return _row("SELECT * FROM participants WHERE discord_id=?", (str(discord_id),))
 
 
 def all_participants() -> list[dict]:
@@ -107,18 +136,19 @@ def create_contest(name, start_epoch, duration_min, contest_type, num_problems,
         "num_problems, status, guild_id, channel_id, created_by, created_at, draw_epoch) "
         "VALUES (?,?,?,?,?,'recruiting',?,?,?,?,?) RETURNING id",
         (name, start_epoch, duration_min, contest_type, num_problems,
-         guild_id, channel_id, created_by, _now_iso(), draw_epoch),
+         str(guild_id), str(channel_id), str(created_by), _now_iso(), draw_epoch),
     )
     conn().commit()
     return row["id"]
 
 
 def set_join_message(contest_id: int, message_id: int):
-    _write("UPDATE contests SET join_message_id=? WHERE id=?", (message_id, contest_id))
+    _write("UPDATE contests SET join_message_id=? WHERE id=?",
+           (str(message_id), contest_id))
 
 
 def contest_by_join_message(message_id: int) -> dict | None:
-    return _row("SELECT * FROM contests WHERE join_message_id=?", (message_id,))
+    return _row("SELECT * FROM contests WHERE join_message_id=?", (str(message_id),))
 
 
 # --- contest join list (per-contest opt-in) ---
@@ -126,7 +156,7 @@ def contest_by_join_message(message_id: int) -> dict | None:
 def join_contest(contest_id: int, discord_id: int) -> bool:
     try:
         _write("INSERT INTO contest_participants (contest_id, discord_id, joined_at) "
-               "VALUES (?,?,?)", (contest_id, discord_id, _now_iso()))
+               "VALUES (?,?,?)", (contest_id, str(discord_id), _now_iso()))
         return True
     except Exception as e:
         if _is_unique_violation(e):
@@ -137,13 +167,13 @@ def join_contest(contest_id: int, discord_id: int) -> bool:
 def leave_contest(contest_id: int, discord_id: int) -> bool:
     before = is_joined(contest_id, discord_id)
     _write("DELETE FROM contest_participants WHERE contest_id=? AND discord_id=?",
-           (contest_id, discord_id))
+           (contest_id, str(discord_id)))
     return before
 
 
 def is_joined(contest_id: int, discord_id: int) -> bool:
     return _row("SELECT 1 AS x FROM contest_participants WHERE contest_id=? AND discord_id=?",
-                (contest_id, discord_id)) is not None
+                (contest_id, str(discord_id))) is not None
 
 
 def joined_participants(contest_id: int) -> list[dict]:
@@ -185,7 +215,7 @@ def set_contest_status(contest_id: int, status: str):
 
 def set_leaderboard_message(contest_id: int, message_id: int):
     _write("UPDATE contests SET leaderboard_message_id=? WHERE id=?",
-           (message_id, contest_id))
+           (str(message_id), contest_id))
 
 
 def contests_by_status(status: str) -> list[dict]:
@@ -196,13 +226,13 @@ def latest_running_contest(guild_id: int) -> dict | None:
     return _row(
         "SELECT * FROM contests WHERE guild_id=? AND status='running' "
         "ORDER BY start_epoch DESC LIMIT 1",
-        (guild_id,),
+        (str(guild_id),),
     )
 
 
 def latest_contest(guild_id: int) -> dict | None:
     return _row(
-        "SELECT * FROM contests WHERE guild_id=? ORDER BY id DESC LIMIT 1", (guild_id,))
+        "SELECT * FROM contests WHERE guild_id=? ORDER BY id DESC LIMIT 1", (str(guild_id),))
 
 
 # --- solves ---
@@ -213,7 +243,7 @@ def record_solve(contest_id, discord_id, problem_id, points, solved_epoch) -> bo
         _write(
             "INSERT INTO solves (contest_id, discord_id, problem_id, points, "
             "solved_epoch, verified_epoch) VALUES (?,?,?,?,?,?)",
-            (contest_id, discord_id, problem_id, points, solved_epoch, int(time.time())),
+            (contest_id, str(discord_id), problem_id, points, solved_epoch, int(time.time())),
         )
         return True
     except Exception as e:
@@ -225,7 +255,7 @@ def record_solve(contest_id, discord_id, problem_id, points, solved_epoch) -> bo
 def has_solve(contest_id, discord_id, problem_id) -> bool:
     return _row(
         "SELECT 1 AS x FROM solves WHERE contest_id=? AND discord_id=? AND problem_id=?",
-        (contest_id, discord_id, problem_id),
+        (contest_id, str(discord_id), problem_id),
     ) is not None
 
 
@@ -255,7 +285,7 @@ def add_vote(discord_id: int, problem_id: int) -> bool:
     """False if this user already voted for this problem."""
     try:
         _write("INSERT INTO votes (discord_id, problem_id, voted_at) VALUES (?,?,?)",
-               (discord_id, problem_id, _now_iso()))
+               (str(discord_id), problem_id, _now_iso()))
         return True
     except Exception as e:
         if _is_unique_violation(e):
@@ -276,7 +306,7 @@ def record_performance(discord_id: int, contest_id: int, perf: int, at_epoch: in
     _write(
         "INSERT OR IGNORE INTO performances (discord_id, contest_id, perf, at_epoch) "
         "VALUES (?,?,?,?)",
-        (discord_id, contest_id, perf, at_epoch),
+        (str(discord_id), contest_id, perf, at_epoch),
     )
 
 

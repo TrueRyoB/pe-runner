@@ -166,7 +166,7 @@ def record_contest_performances(contest_row):
 
 async def refresh_leaderboard(contest_row):
     """Update (or create) the leaderboard message for a contest."""
-    channel = client.get_channel(contest_row["channel_id"])
+    channel = client.get_channel(int(contest_row["channel_id"]))
     if channel is None:
         return
     embed = leaderboard_embed(contest_row)
@@ -278,7 +278,7 @@ async def create_contest(interaction: discord.Interaction, start: str,
     # Public recruiting announcement with Join/Leave buttons (no problems yet —
     # they're drawn at draw_epoch from whoever actually joined).
     sent = await interaction.channel.send(
-        msg.contest_recruiting(name, start_epoch, draw_epoch, []),
+        msg.contest_recruiting(name, start_epoch, []),
         view=JoinView())
     db.set_join_message(cid, sent.id)
     await interaction.followup.send(msg.create_ack(), ephemeral=True)
@@ -306,8 +306,7 @@ class JoinView(discord.ui.View):
         ids = [p["discord_id"] for p in db.joined_participants(c["id"])]
         try:
             await interaction.message.edit(
-                content=msg.contest_recruiting(
-                    c["name"], c["start_epoch"], c["draw_epoch"], ids),
+                content=msg.contest_recruiting(c["name"], c["start_epoch"], ids),
                 view=self, allowed_mentions=discord.AllowedMentions.none())
         except Exception:
             pass
@@ -610,7 +609,7 @@ def _problem_list_md(problems) -> str:
 async def _draw_contest(contest_row):
     """Draw problems from the JOINED participants' all-unsolved pool, post the list."""
     cid = contest_row["id"]
-    channel = client.get_channel(contest_row["channel_id"])
+    channel = client.get_channel(int(contest_row["channel_id"]))
     joined = db.joined_participants(cid)
     if not joined:
         db.set_contest_status(cid, "finished")
@@ -648,7 +647,7 @@ async def scheduler():
     for c in db.contests_by_status("scheduled"):
         if now >= c["start_epoch"]:
             db.set_contest_status(c["id"], "running")
-            channel = client.get_channel(c["channel_id"])
+            channel = client.get_channel(int(c["channel_id"]))
             if channel:
                 probs = db.contest_problems(c["id"])
                 lst = "\n".join(
@@ -662,7 +661,7 @@ async def scheduler():
             db.set_contest_status(c["id"], "finished")
             record_contest_performances(db.get_contest(c["id"]))  # update ratings
             await refresh_leaderboard(db.get_contest(c["id"]))
-            channel = client.get_channel(c["channel_id"])
+            channel = client.get_channel(int(c["channel_id"]))
             if channel:
                 await channel.send(msg.contest_end(c["name"]))
 

@@ -5,6 +5,10 @@ Centralized here so tone can be tuned in one place.
 """
 from __future__ import annotations
 
+from datetime import datetime
+
+import config
+
 # --- /register ---
 
 REGISTER_INVALID_KEY = (
@@ -90,12 +94,13 @@ def select_fail(err) -> str:
             "難易度タイプをゆるめるか、問題数を減らしてみてにゃ。")
 
 
-def contest_recruiting(name: str, start_epoch: int, draw_epoch: int,
-                       joined_ids: list[int]) -> str:
-    who = " ".join(f"<@{i}>" for i in joined_ids) if joined_ids else "まだいないにゃ"
+def contest_recruiting(name: str, start_epoch: int, joined_ids: list[int]) -> str:
+    who = " ".join(f"<@{i}>" for i in joined_ids) if joined_ids else "もぬけの空にゃ"
+    dt = datetime.fromtimestamp(start_epoch, config.TIMEZONE)
+    when = f"{dt.month}月{dt.day}日 {dt.hour:02d}:{dt.minute:02d}"
     return (f"🎟️ **{name}** 参加受付中にゃ！\n"
-            f"開始 <t:{start_epoch}:F> ・ 問題発表 <t:{draw_epoch}:F>頃\n"
-            f"参加は下の **参加する 🙋** にゃ！\n"
+            f"開始 {when}\n"
+            f"参加は下の **参加する 🙋** にゃ！\n\n"
             f"**参加者({len(joined_ids)}):** {who}")
 
 
