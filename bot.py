@@ -478,6 +478,12 @@ async def tweet(interaction: discord.Interaction):
     await interaction.followup.send("ツイート文を出したにゃ🐦", ephemeral=True)
 
 
+@tree.command(name="introduce", description="オイラーにゃんが自己紹介するにゃ（10秒で消える）")
+async def introduce(interaction: discord.Interaction):
+    # Public and auto-deletes after ~10s so it doesn't clutter the channel.
+    await interaction.response.send_message(msg.INTRODUCE, delete_after=10)
+
+
 @tree.command(name="service", description="使えるコマンド一覧を表示するにゃ")
 async def service(interaction: discord.Interaction):
     e = discord.Embed(title="🐾 オイラーにゃん コマンド一覧", color=0xf1c40f)
@@ -490,6 +496,7 @@ async def service(interaction: discord.Interaction):
         "**/recommendations** — 人気のおすすめ問題（未ACのみ・最大5件）",
         "**/tweet** — 最後のコンテスト結果のツイート文を生成",
         "**/rating** — コミュニティ・レーティング（AtCoder風・非活動で減衰）",
+        "**/introduce** — オイラーにゃんの自己紹介（10秒で消える）",
         "**/service** — このコマンド一覧",
         "（botメッセージを右クリック→アプリ→「botメッセージを削除」はオーナー限定にゃ）",
     ])
