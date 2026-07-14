@@ -5,7 +5,9 @@ All user-facing text lives in messages.py (spoken by the mascot オイラーに�
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import sys
 import threading
 import time
 from datetime import datetime
@@ -14,6 +16,17 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import discord
 from discord import app_commands
 from discord.ext import tasks
+
+# Render/PaaS capture stdout via a pipe -> block-buffered -> our prints never show.
+# Force line buffering so diagnostics appear in the logs immediately.
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+except Exception:
+    pass
+
+# Live status, surfaced on the health endpoint for remote diagnosis.
+STATUS = {"ready": False, "user": None, "guilds": [], "synced": {}, "errors": []}
 
 import config
 import contest as contest_mod
@@ -324,31 +337,39 @@ async def on_ready():
     # Fall back to GUILD_ID if guild list isn't populated yet.
     targets = list(client.guilds) or (
         [discord.Object(id=config.GUILD_ID)] if config.GUILD_ID else [])
+    STATUS["user"] = str(client.user)
+    STATUS["guilds"] = [g.id for g in client.guilds]
     if not targets:
         print("⚠️ bot is in no guilds — invite it to your server first.")
     for g in targets:
         try:
             tree.copy_global_to(guild=g)
             synced = await tree.sync(guild=g)
+            STATUS["synced"][str(g.id)] = len(synced)
             print(f"synced {len(synced)} slash commands to guild {g.id}")
         except discord.Forbidden:
-            print(f"⚠️ 403 Missing Access syncing to guild {g.id}: re-invite the bot "
-                  "with the 'applications.commands' scope. (Bot stays online.)")
+            STATUS["errors"].append(f"403 Missing Access on guild {getattr(g, 'id', '?')}")
+            print(f"⚠️ 403 Missing Access syncing to guild {getattr(g, 'id', '?')}: "
+                  "re-invite the bot with 'applications.commands' scope. (Bot stays online.)")
         except Exception as e:
+            STATUS["errors"].append(f"{getattr(g, 'id', '?')}: {e!r}")
             print(f"⚠️ command sync failed for guild {getattr(g, 'id', '?')}: {e!r}")
     if not scheduler.is_running():
         scheduler.start()
+    STATUS["ready"] = True
     print(msg.ready_log(client.user))
 
 
 class _HealthHandler(BaseHTTPRequestHandler):
     """Tiny HTTP endpoint so PaaS platforms (Render free) see a live web service
-    and an external pinger (cron-job.org) can keep it awake."""
+    and an external pinger (cron-job.org) can keep it awake. Also returns live
+    status JSON for remote diagnosis (guild IDs / sync counts / errors)."""
     def do_GET(self):
+        body = json.dumps(STATUS).encode()
         self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(b"ok")
+        self.wfile.write(body)
 
     def log_message(self, *args):  # silence access logs
         pass
