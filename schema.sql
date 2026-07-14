@@ -54,15 +54,6 @@ CREATE TABLE IF NOT EXISTS votes (
     PRIMARY KEY (discord_id, problem_id)   -- one vote per user per problem (unique user)
 );
 
--- Log of /say messages (who said what, and the auto-delete duration).
-CREATE TABLE IF NOT EXISTS say_log (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    discord_id TEXT,
-    message    TEXT NOT NULL,
-    seconds    INTEGER NOT NULL,
-    created_at TEXT NOT NULL
-);
-
 -- Anonymous feedback: sender identity is deliberately NOT stored.
 CREATE TABLE IF NOT EXISTS feedback (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,

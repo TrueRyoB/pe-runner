@@ -326,22 +326,6 @@ def all_performances() -> list[dict]:
         "ORDER BY f.at_epoch DESC")
 
 
-# --- /say log ---
-
-def add_say(discord_id: int, message: str, seconds: int):
-    _write("INSERT INTO say_log (discord_id, message, seconds, created_at) "
-           "VALUES (?,?,?,?)", (str(discord_id), message, seconds, _now_iso()))
-
-
-def list_say(limit: int = 20) -> list[dict]:
-    return _rows("SELECT id, discord_id, message, seconds, created_at FROM say_log "
-                 "ORDER BY id DESC LIMIT ?", (limit,))
-
-
-def say_count() -> int:
-    return _row("SELECT COUNT(*) AS n FROM say_log")["n"]
-
-
 # --- anonymous feedback (no sender identity stored) ---
 
 def add_feedback(message: str):
