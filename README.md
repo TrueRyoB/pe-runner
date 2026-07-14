@@ -38,8 +38,9 @@
    - ※ PE ログインは CAPTCHA があるため自動ログインはしない。cookie 方式で運用する。
    - ※ cookie 失効時は bot が `SessionExpired` を通知するので、都度貼り直す
      （方法Aを再実行するのが速い）。
-3. **friend 登録**: 参加者の friend key を bot アカウントの friends ページに追加する
-   （運営が手動追加。これで bot がその人の progress を読めるようになる）。
+3. **friend 登録は自動**: 参加者が `/register` のボタンから PE ユーザ名＋friend key を
+   入力すると、bot が friends ページへ自動で追加する（captcha 無しの POST を検証済み）。
+   運営の手動追加は不要。
 
 ### 2. Discord 側
 1. https://discord.com/developers/applications で「New Application」→ 左メニュー Bot →

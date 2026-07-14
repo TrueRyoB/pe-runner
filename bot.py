@@ -170,6 +170,12 @@ async def _do_register(user_id: int, pe_username: str, friend_key: str):
     if db.get_participant(user_id) is None and count >= config.FRIEND_LIMIT:
         return False, msg.register_limit(config.FRIEND_LIMIT), None
     db.upsert_participant(user_id, uname, fkey)
+    # Auto-add as a friend on the bot's PE account (was a manual operator step).
+    # Best-effort: the solved_ids check below is the authoritative confirmation.
+    try:
+        await asyncio.to_thread(pe_client.add_friend, fkey)
+    except Exception:
+        pass
     try:
         await asyncio.to_thread(pe_client.solved_ids, uname)
         note = msg.REGISTER_NOTE_VERIFIED

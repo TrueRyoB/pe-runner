@@ -27,6 +27,7 @@ import config
 BASE = "https://projecteuler.net"
 PROGRESS_URL = BASE + "/progress={username}"
 PROFILE_TXT_URL = BASE + "/profile/{username}.txt"
+FRIENDS_URL = BASE + "/friends"
 
 # Friend keys look like "942079_iEDMDDXDe13LYMmzlReee7a2IXghArkI".
 _FRIEND_KEY_RE = re.compile(r"^\d+_[A-Za-z0-9]{8,}$")
@@ -250,6 +251,43 @@ def _parse_grid(html: str) -> dict[int, ProblemCell]:
 def _exposes_solve_status(grid: dict[int, ProblemCell]) -> bool:
     """True if this page actually revealed per-problem solve status (self or friend)."""
     return any(c.solved is not None for c in grid.values())
+
+
+def add_friend(friend_key: str) -> bool:
+    """Add a friend by key on the bot's PE account (no captcha on this form).
+
+    Scrapes a fresh csrf_token from the add-friend form, then POSTs. Best-effort:
+    returns True if the POST was accepted (HTTP ok, not bounced to sign_in). The
+    authoritative confirmation is whether the friend's progress becomes readable
+    afterwards (solved_ids). Idempotent-ish: re-adding an existing friend is safe.
+    """
+    key = (friend_key or "").strip()
+    if not key:
+        return False
+    with _LOCK:
+        page = _session().get(FRIENDS_URL, timeout=30)
+        if "/sign_in" in page.url:
+            raise SessionExpired("PEセッション失効（friendsページを開けません）。")
+        soup = BeautifulSoup(page.text, "lxml")
+        token, submit_val = None, "Add friend"
+        for form in soup.find_all("form"):
+            key_input = form.find("input", {"name": "friend_key"})
+            if key_input:
+                t = form.find("input", {"name": "csrf_token"})
+                token = t.get("value") if t else None
+                btn = form.find(attrs={"name": "new_friend"})
+                if btn and btn.get("value"):
+                    submit_val = btn.get("value")
+                break
+        if not token:
+            return False
+        resp = _session().post(
+            FRIENDS_URL,
+            data={"friend_key": key, "new_friend": submit_val, "csrf_token": token},
+            headers={"Referer": FRIENDS_URL},
+            timeout=30,
+        )
+    return resp.status_code == 200 and "/sign_in" not in resp.url
 
 
 def valid_friend_key(key: str) -> bool:
