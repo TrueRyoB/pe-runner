@@ -43,6 +43,18 @@ def register_ok(name: str, note: str, warn: str = "") -> str:
     return f"😺 **{name}** で登録できたにゃ！ようこそにゃ〜！\n{note}{warn}"
 
 
+REGISTER_ACK = "✅ 登録したにゃ！（結果はみんなに公開したにゃ）"
+REGISTER_PANEL_TEXT = (
+    "🐾 **コンテスト参加登録** 🐾\n"
+    "下のボタンから、PEユーザ名と friend key を登録してにゃ！（一度だけでOK）\n"
+    "※ friend key は各自のPEアカウントの Account ページで確認できるにゃ。"
+)
+
+
+def create_ack() -> str:
+    return "✅ コンテストを作ったにゃ！（みんなに公開したにゃ）"
+
+
 def register_warn(count: int, limit: int) -> str:
     return f"\n⚠️ 参加者 {count}/{limit}人にゃ。そろそろ満員に近いにゃ〜。"
 

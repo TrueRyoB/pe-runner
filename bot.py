@@ -27,6 +27,7 @@ except Exception:
 
 # Live status, surfaced on the health endpoint for remote diagnosis.
 STATUS = {"ready": False, "user": None, "guilds": [], "synced": {}, "errors": []}
+_panel_registered = False
 
 import config
 import contest as contest_mod
@@ -128,32 +129,20 @@ async def refresh_leaderboard(contest_row):
 
 # ---------------------------------------------------------------- commands
 
-@tree.command(name="register", description="PEユーザ名とfriend keyを登録するにゃ")
-@app_commands.describe(pe_username="Project Eulerのユーザ名", friend_key="あなたのfriend key")
-async def register(interaction: discord.Interaction, pe_username: str, friend_key: str):
-    await interaction.response.defer(ephemeral=True)
-    uname = pe_username.strip()
-    fkey = friend_key.strip()
+async def _do_register(user_id: int, pe_username: str, friend_key: str):
+    """Core registration logic. Returns (ok, private_error_msg, public_success_msg).
 
-    # 1) friend key format check (deterministic, cheap).
+    NOTE: no profile.txt existence gate (unreliable for private profiles). The
+    authoritative existence+friendship check is reading the friend's progress.
+    """
+    uname = (pe_username or "").strip()
+    fkey = (friend_key or "").strip()
     if not pe_client.valid_friend_key(fkey):
-        await interaction.followup.send(msg.REGISTER_INVALID_KEY, ephemeral=True)
-        return
-
-    # NOTE: we do NOT gate on a profile.txt "username exists" check — it's
-    # unreliable (private profiles return empty even when authed; anti-bot 403s).
-    # The authoritative existence+friendship check is reading the friend's
-    # progress below, which also distinguishes verified vs pending.
-
-    # 2) friend-cap safeguard (only for genuinely new registrants).
+        return False, msg.REGISTER_INVALID_KEY, None
     count = db.participant_count()
-    if db.get_participant(interaction.user.id) is None and count >= config.FRIEND_LIMIT:
-        await interaction.followup.send(msg.register_limit(config.FRIEND_LIMIT), ephemeral=True)
-        return
-
-    db.upsert_participant(interaction.user.id, uname, fkey)
-
-    # 3) authoritative check: can we read their progress? (exists AND friended)
+    if db.get_participant(user_id) is None and count >= config.FRIEND_LIMIT:
+        return False, msg.register_limit(config.FRIEND_LIMIT), None
+    db.upsert_participant(user_id, uname, fkey)
     try:
         await asyncio.to_thread(pe_client.solved_ids, uname)
         note = msg.REGISTER_NOTE_VERIFIED
@@ -163,13 +152,59 @@ async def register(interaction: discord.Interaction, pe_username: str, friend_ke
         note = msg.REGISTER_NOTE_UNKNOWN   # bot's own PE session problem
     except Exception:
         note = msg.REGISTER_NOTE_UNKNOWN
-
     warn = ""
     if count + 1 >= config.FRIEND_LIMIT - 5:
         warn = msg.register_warn(count + 1, config.FRIEND_LIMIT)
-    # Registration success is PUBLIC (everyone sees who joined); errors above stay
-    # ephemeral. A non-ephemeral followup after an ephemeral defer posts publicly.
-    await interaction.followup.send(msg.register_ok(uname, note, warn), ephemeral=False)
+    return True, None, msg.register_ok(uname, note, warn)
+
+
+async def _finish_register(interaction: discord.Interaction, ok, priv, pub):
+    """Public success (posted to the channel) or ephemeral error to the user.
+    Uses channel.send for the public part — non-ephemeral followups after an
+    ephemeral defer/response stay private, so we must post to the channel."""
+    if ok:
+        await interaction.channel.send(pub)
+        await interaction.followup.send(msg.REGISTER_ACK, ephemeral=True)
+    else:
+        await interaction.followup.send(priv, ephemeral=True)
+
+
+@tree.command(name="register", description="PEユーザ名とfriend keyを登録するにゃ")
+@app_commands.describe(pe_username="Project Eulerのユーザ名", friend_key="あなたのfriend key")
+async def register(interaction: discord.Interaction, pe_username: str, friend_key: str):
+    await interaction.response.defer(ephemeral=True)
+    ok, priv, pub = await _do_register(interaction.user.id, pe_username, friend_key)
+    await _finish_register(interaction, ok, priv, pub)
+
+
+class RegisterModal(discord.ui.Modal, title="参加登録にゃ 🐾"):
+    pe_username = discord.ui.TextInput(
+        label="PEユーザ名", placeholder="Project Eulerのユーザ名", required=True, max_length=64)
+    friend_key = discord.ui.TextInput(
+        label="friend key", placeholder="例: 123456_xxxxxxxxxxxx", required=True, max_length=128)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        ok, priv, pub = await _do_register(
+            interaction.user.id, str(self.pe_username), str(self.friend_key))
+        await _finish_register(interaction, ok, priv, pub)
+
+
+class RegisterPanel(discord.ui.View):
+    """Persistent view: a button that opens the registration modal."""
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="参加登録するにゃ 🐾", style=discord.ButtonStyle.primary,
+                       custom_id="pe_register_btn")
+    async def register_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(RegisterModal())
+
+
+@tree.command(name="register_panel", description="参加登録ボタンを設置するにゃ")
+async def register_panel(interaction: discord.Interaction):
+    await interaction.channel.send(msg.REGISTER_PANEL_TEXT, view=RegisterPanel())
+    await interaction.response.send_message("参加登録ボタンを設置したにゃ！", ephemeral=True)
 
 
 def _contest_type_choices():
@@ -232,11 +267,11 @@ async def create_contest(interaction: discord.Interaction, start: str,
                             spec["num"], interaction.guild_id,
                             interaction.channel_id, interaction.user.id)
     db.add_contest_problems(cid, problems)
-    await interaction.followup.send(
+    # Public announcement (channel.send — ephemeral defer would keep it private).
+    await interaction.channel.send(
         msg.create_ok(cid, name, start_epoch, spec["duration"],
-                      contest_type.value, len(problems)),
-        ephemeral=True,
-    )
+                      contest_type.value, len(problems)))
+    await interaction.followup.send(msg.create_ack(), ephemeral=True)
 
 
 class SubmitView(discord.ui.View):
@@ -370,6 +405,10 @@ async def on_ready():
         except Exception as e:
             STATUS["errors"].append(f"{getattr(g, 'id', '?')}: {e!r}")
             print(f"⚠️ command sync failed for guild {getattr(g, 'id', '?')}: {e!r}")
+    global _panel_registered
+    if not _panel_registered:
+        client.add_view(RegisterPanel())  # make the button work after restarts
+        _panel_registered = True
     if not scheduler.is_running():
         scheduler.start()
     STATUS["ready"] = True
