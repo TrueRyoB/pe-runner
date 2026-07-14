@@ -10,6 +10,7 @@ import os
 import sys
 import threading
 import time
+from urllib.parse import quote
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -156,7 +157,7 @@ async def refresh_leaderboard(contest_row):
 
 # ---------------------------------------------------------------- commands
 
-async def _do_register(user_id: int, pe_username: str, friend_key: str):
+async def _do_register(user_id: int, display_name: str, pe_username: str, friend_key: str):
     """Core registration logic. Returns (ok, private_error_msg, public_success_msg).
 
     NOTE: no profile.txt existence gate (unreliable for private profiles). The
@@ -188,7 +189,7 @@ async def _do_register(user_id: int, pe_username: str, friend_key: str):
     warn = ""
     if count + 1 >= config.FRIEND_LIMIT - 5:
         warn = msg.register_warn(count + 1, config.FRIEND_LIMIT)
-    return True, None, msg.register_ok(uname, note, warn)
+    return True, None, msg.register_ok(display_name, uname, note, warn)
 
 
 async def _finish_register(interaction: discord.Interaction, ok, priv, pub):
@@ -218,7 +219,8 @@ class RegisterModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         ok, priv, pub = await _do_register(
-            interaction.user.id, str(self.pe_username), str(self.friend_key))
+            interaction.user.id, interaction.user.display_name,
+            str(self.pe_username), str(self.friend_key))
         await _finish_register(interaction, ok, priv, pub)
 
 
@@ -358,7 +360,8 @@ class SubmitView(discord.ui.View):
         if not new:
             await interaction.followup.send(msg.already_counted(pid), ephemeral=True)
             return
-        await interaction.followup.send(msg.submit_ok(pid, points), ephemeral=True)
+        await interaction.followup.send(
+            msg.submit_ok(interaction.user.display_name, pid, points), ephemeral=True)
         await refresh_leaderboard(db.get_contest(self.contest_row["id"]))
 
 
@@ -407,6 +410,107 @@ async def leaderboard_cmd(interaction: discord.Interaction):
         await interaction.response.send_message(msg.NO_CONTEST, ephemeral=True)
         return
     await interaction.response.send_message(embed=leaderboard_embed(contest_row))
+
+
+@tree.command(name="recommend", description="問題を推薦（投票）するにゃ")
+@app_commands.describe(problem_id="推薦したいPEの問題番号")
+async def recommend(interaction: discord.Interaction, problem_id: int):
+    await interaction.response.defer(ephemeral=True)
+    try:
+        cat = await asyncio.to_thread(pe_client.catalog_cached)
+    except pe_client.SessionExpired as e:
+        await interaction.followup.send(msg.session_expired(e), ephemeral=True)
+        return
+    cell = cat.get(problem_id)
+    if not cell:
+        await interaction.followup.send(msg.recommend_invalid(problem_id), ephemeral=True)
+        return
+    name = interaction.user.display_name
+    if not db.add_vote(interaction.user.id, problem_id):
+        await interaction.followup.send(msg.recommend_dup(name, problem_id), ephemeral=True)
+        return
+    await interaction.followup.send(
+        msg.recommend_ok(name, problem_id, cell.title), ephemeral=True)
+
+
+@tree.command(name="recommendations",
+              description="人気のおすすめ問題（あなたが未ACのみ・最大5件）にゃ")
+async def recommendations(interaction: discord.Interaction):
+    part = db.get_participant(interaction.user.id)
+    if not part:
+        await interaction.response.send_message(msg.NOT_REGISTERED, ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    try:
+        cat = await asyncio.to_thread(pe_client.catalog_cached)
+        solved = await asyncio.to_thread(pe_client.solved_ids, part["pe_username"])
+    except pe_client.ProgressUnavailable:
+        await interaction.followup.send(msg.cannot_read_progress(), ephemeral=True)
+        return
+    except pe_client.SessionExpired as e:
+        await interaction.followup.send(msg.session_expired(e), ephemeral=True)
+        return
+    picks = []
+    for pid, votes in db.vote_counts():          # already sorted by votes desc
+        if pid in solved:
+            continue
+        cell = cat.get(pid)
+        if not cell:
+            continue
+        picks.append((pid, votes, cell))
+        if len(picks) >= 5:
+            break
+    if not picks:
+        await interaction.followup.send(msg.REC_EMPTY, ephemeral=True)
+        return
+    e = discord.Embed(title=msg.rec_title(interaction.user.display_name), color=0x3498db)
+    e.description = "\n".join(
+        f"{i}. [Problem {pid}](https://projecteuler.net/problem={pid}) "
+        f"「{cell.title}」— {votes}票 / 難易度{cell.difficulty}%"
+        for i, (pid, votes, cell) in enumerate(picks, 1))
+    await interaction.followup.send(embed=e, ephemeral=True)
+
+
+def _build_tweet(contest_row, rows) -> str:
+    lines = [f"🏆 {contest_row['name']} の結果！"]
+    medals = ["🥇", "🥈", "🥉"]
+    if rows:
+        for i, r in enumerate(rows[:3]):
+            lines.append(f"{medals[i]} {r['pe_username']} {r['pts']}pt")
+    else:
+        lines.append("（参加者なし）")
+    lines.append("#ProjectEuler #オイラーにゃん")
+    return "\n".join(lines)[:270]
+
+
+@tree.command(name="tweet", description="最後のコンテスト結果のツイート文を作るにゃ")
+async def tweet(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    contest_row = db.latest_contest(interaction.guild_id)
+    if not contest_row:
+        await interaction.followup.send(msg.NO_CONTEST_TWEET, ephemeral=True)
+        return
+    text = _build_tweet(contest_row, db.leaderboard(contest_row["id"]))
+    url = "https://twitter.com/intent/tweet?text=" + quote(text)
+    await interaction.channel.send(msg.tweet_panel(text, url))
+    await interaction.followup.send("ツイート文を出したにゃ🐦", ephemeral=True)
+
+
+@tree.command(name="service", description="使えるコマンド一覧を表示するにゃ")
+async def service(interaction: discord.Interaction):
+    e = discord.Embed(title="🐾 オイラーにゃん コマンド一覧", color=0xf1c40f)
+    e.description = "\n".join([
+        "**/register** — 参加登録ボタンを設置（ボタン→フォームで登録）",
+        "**/create_contest** `start` `contest_type` — コンテスト作成（誰でも）",
+        "**/submit** — ACした問題を提出（開催中のみ）",
+        "**/leaderboard** — 順位表（参加者 × 各問題のAC状況）",
+        "**/recommend** `problem_id` — 問題を推薦（投票）",
+        "**/recommendations** — 人気のおすすめ問題（未ACのみ・最大5件）",
+        "**/tweet** — 最後のコンテスト結果のツイート文を生成",
+        "**/service** — このコマンド一覧",
+        "（botメッセージを右クリック→アプリ→「botメッセージを削除」はオーナー限定にゃ）",
+    ])
+    await interaction.response.send_message(embed=e, ephemeral=True)
 
 
 # ---------------------------------------------------------------- scheduler

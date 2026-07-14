@@ -343,3 +343,17 @@ def catalog() -> dict[int, ProblemCell]:
         raise SessionExpired(
             "botのPEセッションが無効です。cookieを取り直して .env を更新してください。"
         ) from e
+
+
+_CATALOG_CACHE: dict = {"at": 0.0, "data": None}
+
+
+def catalog_cached(ttl: float = 600.0) -> dict[int, ProblemCell]:
+    """catalog() with a short in-memory TTL (the problem list barely changes)."""
+    import time
+    now = time.time()
+    if _CATALOG_CACHE["data"] is not None and now - _CATALOG_CACHE["at"] < ttl:
+        return _CATALOG_CACHE["data"]
+    data = catalog()
+    _CATALOG_CACHE.update(at=now, data=data)
+    return data

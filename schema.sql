@@ -28,6 +28,13 @@ CREATE TABLE IF NOT EXISTS contest_problems (
     PRIMARY KEY (contest_id, problem_id)
 );
 
+CREATE TABLE IF NOT EXISTS votes (
+    discord_id INTEGER NOT NULL,
+    problem_id INTEGER NOT NULL,
+    voted_at   TEXT NOT NULL,
+    PRIMARY KEY (discord_id, problem_id)   -- one vote per user per problem (unique user)
+);
+
 CREATE TABLE IF NOT EXISTS solves (
     contest_id     INTEGER NOT NULL,
     discord_id     INTEGER NOT NULL,

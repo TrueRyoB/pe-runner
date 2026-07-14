@@ -136,6 +136,34 @@ def has_solve(contest_id, discord_id, problem_id) -> bool:
     ).fetchone() is not None
 
 
+def add_vote(discord_id: int, problem_id: int) -> bool:
+    """Record a recommendation vote. Returns False if this user already voted for it."""
+    try:
+        conn().execute(
+            "INSERT INTO votes (discord_id, problem_id, voted_at) VALUES (?,?,?)",
+            (discord_id, problem_id, _now_iso()),
+        )
+        conn().commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def vote_counts() -> list[tuple]:
+    """[(problem_id, unique_user_votes)] sorted by votes desc, then problem_id asc."""
+    rows = conn().execute(
+        "SELECT problem_id, COUNT(*) AS votes FROM votes "
+        "GROUP BY problem_id ORDER BY votes DESC, problem_id ASC"
+    ).fetchall()
+    return [(r["problem_id"], r["votes"]) for r in rows]
+
+
+def latest_contest(guild_id: int) -> sqlite3.Row | None:
+    return conn().execute(
+        "SELECT * FROM contests WHERE guild_id=? ORDER BY id DESC LIMIT 1", (guild_id,)
+    ).fetchone()
+
+
 def solved_map(contest_id: int) -> dict[int, set]:
     """{discord_id: set(problem_id)} of verified solves in this contest."""
     rows = conn().execute(

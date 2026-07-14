@@ -38,8 +38,9 @@ REGISTER_NOTE_UNKNOWN = (
 )
 
 
-def register_ok(name: str, note: str, warn: str = "") -> str:
-    return f"😺 **{name}** で登録できたにゃ！ようこそにゃ〜！\n{note}{warn}"
+def register_ok(display_name: str, pe_username: str, note: str, warn: str = "") -> str:
+    return (f"😺 **{display_name}** さんが **{pe_username}**（PE）で登録できたにゃ！"
+            f"ようこそにゃ〜！\n{note}{warn}")
 
 
 REGISTER_ACK = "✅ 登録したにゃ！（結果はみんなに公開したにゃ）"
@@ -116,8 +117,40 @@ def already_counted(pid: int) -> str:
     return f"😹 Problem {pid} はもう計上済みだにゃ〜。"
 
 
-def submit_ok(pid: int, points: int) -> str:
-    return f"🎉 Problem {pid} のAC確認したにゃ！ +{points}ポイントにゃ〜！やったにゃ！"
+def submit_ok(display_name: str, pid: int, points: int) -> str:
+    return (f"🎉 {display_name}さん、Problem {pid} のAC確認したにゃ！ "
+            f"+{points}ポイントにゃ〜！やったにゃ！")
+
+
+# --- /recommend & /recommendations ---
+
+def recommend_ok(display_name: str, pid: int, title: str) -> str:
+    return f"🗳️ {display_name}さん、Problem {pid}「{title}」を推薦したにゃ！"
+
+
+def recommend_invalid(pid: int) -> str:
+    return f"🙀 Problem {pid} なんて無いにゃ…番号を確認してにゃ。"
+
+
+def recommend_dup(display_name: str, pid: int) -> str:
+    return f"😹 {display_name}さん、Problem {pid} はもう推薦済みだにゃ〜。"
+
+
+def rec_title(display_name: str) -> str:
+    return f"🐾 {display_name}さんへのおすすめ問題にゃ（人気順・キミが未ACのだけ）"
+
+
+REC_EMPTY = "😿 おすすめできる問題がまだ無いにゃ（投票が無いか、全部AC済みかも）。"
+
+
+# --- /tweet ---
+
+NO_CONTEST_TWEET = "😿 まだツイートできるコンテストが無いにゃ。"
+
+
+def tweet_panel(text: str, url: str) -> str:
+    return (f"🐦 最後のコンテスト結果のツイート文だにゃ！下のリンクから投稿してにゃ：\n"
+            f"```\n{text}\n```\n{url}")
 
 
 # --- /leaderboard & embeds ---
