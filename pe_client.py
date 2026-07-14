@@ -39,7 +39,12 @@ _DATE_RE = re.compile(r"(\w{3}, \d{1,2} \w{3} \d{4}, \d{2}:\d{2})")
 
 
 class SessionExpired(RuntimeError):
-    pass
+    """The bot's own PE session is invalid/expired (re-seed the cookie)."""
+
+
+class ProgressUnavailable(RuntimeError):
+    """A specific user's progress page can't be viewed — most commonly because the
+    bot hasn't been added as their friend yet (PE redirects such views to /about)."""
 
 
 class ProblemCell:
@@ -174,17 +179,16 @@ def fetch_progress_grid(username: str) -> dict[int, ProblemCell]:
         resp.raise_for_status()
         html = resp.text
 
-        # A logged-out / expired session is redirected to sign_in / about.
-        redirected = any(x in resp.url for x in ("/sign_in", "/about"))
-        if redirected or 'name="Username"' in html:
+        # /sign_in (or a login form) => our session is dead.
+        if "/sign_in" in resp.url or 'name="Username"' in html:
             raise SessionExpired(
                 "PEセッションが無効/失効。ブラウザで取り直して .env を更新してください。"
             )
-
+        # /about or an empty grid => can't view THIS user (usually: not friends).
         cells = _parse_grid(html)
-        if not cells:
-            raise SessionExpired(
-                "問題グリッドが見つかりません（未認証か、このユーザを閲覧できません）。"
+        if "/about" in resp.url or not cells:
+            raise ProgressUnavailable(
+                f"{username} のprogressを閲覧できません（bot と friend 登録されていない可能性）。"
             )
         _save_cookies()  # persist any rotated cookies PE just handed back
         return cells
@@ -208,10 +212,14 @@ def _parse_grid(html: str) -> dict[int, ProblemCell]:
         if not m:
             continue
         pid = int(m.group(1))
-        ahtml = str(a)
-        if "own_problem_unsolved" in ahtml:
+        # The PROFILE OWNER's (friend's) solve status is on the <td> class:
+        # `problem_solved` vs `problem_unsolved`. (The inner div's own_problem_*
+        # class is the VIEWER/bot's own status — not what we want here.)
+        td = a.find_parent("td")
+        td_classes = td.get("class", []) if td else []
+        if "problem_unsolved" in td_classes:
             solved = False
-        elif "own_problem_solved" in ahtml:
+        elif "problem_solved" in td_classes:
             solved = True
         else:
             solved = None
@@ -276,5 +284,11 @@ def solved_ids(username: str) -> set[int]:
 
 def catalog() -> dict[int, ProblemCell]:
     """Full problem list with difficulty/title, read from the bot's own progress
-    page. Solved flags here are the bot's and are ignored by callers."""
-    return fetch_progress_grid(config.PE_BOT_USERNAME)
+    page. Solve flags here are meaningless (own page) and ignored by callers."""
+    try:
+        return fetch_progress_grid(config.PE_BOT_USERNAME)
+    except ProgressUnavailable as e:
+        # The bot can't even see its OWN page => the session is dead.
+        raise SessionExpired(
+            "botのPEセッションが無効です。cookieを取り直して .env を更新してください。"
+        ) from e

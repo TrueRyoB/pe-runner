@@ -1,6 +1,7 @@
 """PEクッキーが有効かを確認する動作チェック。secretは一切出力しない。
 
-    .venv/bin/python tools/check_pe.py
+    .venv/bin/python tools/check_pe.py                 # 認証 + カタログ確認
+    .venv/bin/python tools/check_pe.py <PEユーザ名>     # そのfriendのsolve状況を読む
 
 成功すれば全問題数・難易度分布・選抜ドライランを表示。失敗すれば理由と対処を出す。
 """
@@ -16,7 +17,25 @@ import contest      # noqa: E402
 import pe_client    # noqa: E402
 
 
+def check_friend(username: str):
+    print(f"friend '{username}' の solve 状況を読み取り中...")
+    try:
+        solved = sorted(pe_client.solved_ids(username))
+    except pe_client.ProgressUnavailable as e:
+        print("❌", e)
+        print("→ bot のPEアカウントに、この人の friend key を追加してにゃ。")
+        sys.exit(1)
+    except pe_client.SessionExpired as e:
+        print("❌ botセッション失効:", e)
+        sys.exit(1)
+    print(f"✅ 読み取りOK: {len(solved)} 問 solved")
+    print("   solved ids:", solved[:40], ("..." if len(solved) > 40 else ""))
+
+
 def main():
+    if len(sys.argv) > 1:
+        check_friend(sys.argv[1])
+        return
     print("PE_BOT_USERNAME:", config.PE_BOT_USERNAME or "(未設定!)")
     print("cookie names   :", list(pe_client._config_cookies().keys()) or "(なし)")
     print("-" * 50)

@@ -58,6 +58,13 @@ def session_expired(err) -> str:
             "運営さんにcookieの貼り直しをお願いするにゃ。")
 
 
+def unreadable_participants(names) -> str:
+    joined = ", ".join(names)
+    return (f"🙀 次の参加者のprogressが読めないにゃ: **{joined}**\n"
+            "bot のPEアカウントに friend key を追加してから、もう一度作成してにゃ。"
+            "（全員未AC保証のため、読めない人がいると作れないにゃ）")
+
+
 def select_fail(err) -> str:
     return (f"😾 条件に合う問題を選べなかったにゃ…（{err}）\n"
             "難易度タイプをゆるめるか、問題数を減らしてみてにゃ。")

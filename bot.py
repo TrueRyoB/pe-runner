@@ -41,19 +41,21 @@ def parse_start(text: str) -> int:
     return int(dt.timestamp())
 
 
-async def union_solved(participants) -> set[int]:
-    """Union of every participant's solved problems (for all-unsolved selection)."""
+async def union_solved(participants):
+    """Union of every participant's solved problems (for all-unsolved selection).
+    Returns (solved_ids, unreadable_usernames). Raises SessionExpired if the bot's
+    own session is dead (that aborts creation)."""
     result: set[int] = set()
+    unreadable: list[str] = []
     for p in participants:
         try:
-            ids = await asyncio.to_thread(pe_client.solved_ids, p["pe_username"])
-            result |= ids
+            result |= await asyncio.to_thread(pe_client.solved_ids, p["pe_username"])
         except pe_client.SessionExpired:
             raise
         except Exception:
-            # A single unreadable participant shouldn't abort creation; skip them.
-            continue
-    return result
+            # not friended / unreadable — surface it rather than silently skipping.
+            unreadable.append(p["pe_username"])
+    return result, unreadable
 
 
 def leaderboard_embed(contest_row) -> discord.Embed:
@@ -131,7 +133,7 @@ async def register(interaction: discord.Interaction, pe_username: str, friend_ke
     try:
         await asyncio.to_thread(pe_client.solved_ids, uname)
         note = msg.REGISTER_NOTE_VERIFIED
-    except pe_client.SolveStatusUnavailable:
+    except (pe_client.ProgressUnavailable, pe_client.SolveStatusUnavailable):
         note = msg.REGISTER_NOTE_PENDING   # friendship not set up yet
     except pe_client.SessionExpired:
         note = msg.REGISTER_NOTE_UNKNOWN   # bot's own PE session problem
@@ -175,9 +177,16 @@ async def create_contest(interaction: discord.Interaction, name: str, start: str
 
     try:
         catalog = await asyncio.to_thread(pe_client.catalog)
-        excluded = await union_solved(participants)
+        excluded, unreadable = await union_solved(participants)
     except pe_client.SessionExpired as e:
         await interaction.followup.send(msg.session_expired(e), ephemeral=True)
+        return
+
+    # If some participants can't be read, their solved problems can't be excluded —
+    # abort rather than risk handing out a problem someone already solved.
+    if unreadable:
+        await interaction.followup.send(msg.unreadable_participants(unreadable),
+                                        ephemeral=True)
         return
 
     try:
@@ -224,6 +233,9 @@ class SubmitView(discord.ui.View):
         pid = int(self.select.values[0])
         try:
             grid = await asyncio.to_thread(pe_client.fetch_progress_grid, self.pe_username)
+        except pe_client.ProgressUnavailable:
+            await interaction.followup.send(msg.cannot_read_progress(), ephemeral=True)
+            return
         except pe_client.SessionExpired as e:
             await interaction.followup.send(msg.session_expired(e), ephemeral=True)
             return
