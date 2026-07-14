@@ -321,8 +321,16 @@ async def scheduler():
 async def on_ready():
     db.init()
     guild = discord.Object(id=config.GUILD_ID)
-    tree.copy_global_to(guild=guild)
-    await tree.sync(guild=guild)
+    try:
+        tree.copy_global_to(guild=guild)
+        synced = await tree.sync(guild=guild)
+        print(f"synced {len(synced)} slash commands to guild {config.GUILD_ID}")
+    except discord.Forbidden:
+        print("⚠️ command sync 403 (Missing Access): re-invite the bot with the "
+              "'applications.commands' scope AND make sure GUILD_ID is the server the "
+              "bot is actually in. Bot stays online; commands just won't appear yet.")
+    except Exception as e:
+        print(f"⚠️ command sync failed: {e!r}")
     if not scheduler.is_running():
         scheduler.start()
     print(msg.ready_log(client.user))
