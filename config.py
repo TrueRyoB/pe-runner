@@ -35,6 +35,11 @@ PE_BOT_USERNAME = os.getenv("PE_BOT_USERNAME", "")
 
 TIMEZONE = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tokyo"))
 DB_PATH = os.getenv("DB_PATH", "pe_runner.db")
+# Optional persistent DB (Turso/libSQL). If both are set, db.py uses Turso instead
+# of the local (ephemeral on Render) SQLite file. Empty => unchanged sqlite3 behavior.
+# Accept either our DB_URL/DB_TOKEN_RW names or the TURSO_* names.
+TURSO_DATABASE_URL = os.getenv("DB_URL") or os.getenv("TURSO_DATABASE_URL", "")
+TURSO_AUTH_TOKEN = os.getenv("DB_TOKEN_RW") or os.getenv("TURSO_AUTH_TOKEN", "")
 FRIEND_LIMIT = _int("FRIEND_LIMIT", 64)
 # Where the rotating PE cookie jar is persisted (contains secrets — gitignored).
 COOKIE_JAR_PATH = os.getenv(

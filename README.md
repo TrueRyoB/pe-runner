@@ -125,6 +125,15 @@ cookie は起動時に `PE_COOKIE` 環境変数から再シードされる。恒
 - 750 インスタンス時間/月・無料枠内（24/7 ≒ 730h）。
 - ビルド/起動は `render.yaml` 準拠（`pip install -r requirements.txt` / `python bot.py`）。
 
+### 永続化（Turso/libSQL・揮発ディスク対策）
+`DB_URL` と `DB_TOKEN_RW`（Turso、無料/カード不要）を設定すると、`db.py` が SQLite の
+代わりに Turso を使い、**再起動で登録・順位・投票・レーティングが消えなくなる**（未設定なら
+従来の揮発 SQLite にフォールバック＝後方互換）。libsql の native wheel は CPython 3.12 用のみ
+なので **Render は Python 3.12 に固定**（`.python-version`）している。
+- Render ダッシュボードの環境変数に `DB_URL` / `DB_TOKEN_RW` を設定。
+- 併せて `PYTHON_VERSION=3.12.13` も設定推奨（`.python-version` が効かない場合の保険）。
+- sqlite3 と Turso 両バックエンドで db 層の全操作を実接続テスト済み。
+
 ## コマンド
 
 | コマンド | 用途 |

@@ -3,6 +3,10 @@ requests>=2.31
 beautifulsoup4>=4.12
 lxml>=5.0
 python-dotenv>=1.0
+# Persistent DB (Turso/libSQL). Native wheels exist for CPython <=3.12 only, so
+# the marker skips it on 3.13+ (where the local dev box falls back to sqlite3).
+# Render is pinned to 3.12 (.python-version) so it installs there.
+libsql-experimental>=0.0.55; python_version < "3.13"
 
 # Optional: only for tools/dump_pe_cookie.py (one-time cookie extraction helper).
 # Not needed by the bot at runtime.

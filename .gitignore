@@ -7,3 +7,6 @@ pe_cookies.pkl
 *.pkl
 .venv/
 venv/
+
+.venv312/
+.venv*/
