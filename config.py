@@ -20,7 +20,6 @@ def _int(name: str, default=None):
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "")
 GUILD_ID = _int("GUILD_ID")
-ORGANIZER_ROLE_ID = _int("ORGANIZER_ROLE_ID")
 # Only this Discord account may delete the bot's messages. Accepts a username
 # (e.g. "trueryob") or a numeric user ID.
 OWNER = os.getenv("OWNER", "trueryob")
