@@ -525,9 +525,30 @@ async def say(interaction: discord.Interaction, message: str,
               seconds: app_commands.Range[int, 1, 3600]):
     # Public, auto-deletes after `seconds`. Mentions disabled so it can't be used
     # to ping @everyone/roles/users via the bot.
+    db.add_say(interaction.user.id, message, int(seconds))
     await interaction.response.send_message(
         f"😺 {message}", delete_after=float(seconds),
         allowed_mentions=discord.AllowedMentions.none())
+
+
+@tree.command(name="say_list", description="/say の履歴を見る（オーナーのみ）")
+@app_commands.describe(limit="表示件数（1〜50、既定20）")
+async def say_list(interaction: discord.Interaction,
+                   limit: app_commands.Range[int, 1, 50] = 20):
+    if not is_owner(interaction.user):
+        await interaction.response.send_message(msg.NOT_OWNER, ephemeral=True)
+        return
+    rows = db.list_say(limit)
+    if not rows:
+        await interaction.response.send_message(msg.SAY_EMPTY, ephemeral=True)
+        return
+    e = discord.Embed(title=msg.say_title(db.say_count()), color=0xe67e22)
+    e.description = "\n".join(
+        f"**#{r['id']}** ({r['created_at'].replace('T', ' ')}) "
+        f"<@{r['discord_id']}> [{r['seconds']}s]: {r['message']}"
+        for r in rows)[:4000]
+    await interaction.response.send_message(
+        embed=e, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
 @tree.command(name="feedback", description="匿名でフィードバックを送るにゃ")
@@ -571,7 +592,7 @@ async def service(interaction: discord.Interaction):
         "**/say** `message` `seconds` — 指定内容を喋らせる（指定秒で消える）",
         "**/feedback** `message` — 匿名でフィードバックを送る",
         "**/service** — このコマンド一覧",
-        "（`/feedback_list`・botメッセージ削除はオーナー限定にゃ）",
+        "（`/feedback_list`・`/say_list`・botメッセージ削除はオーナー限定にゃ）",
     ])
     await interaction.response.send_message(embed=e, ephemeral=True)
 
