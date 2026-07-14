@@ -54,6 +54,13 @@ CREATE TABLE IF NOT EXISTS votes (
     PRIMARY KEY (discord_id, problem_id)   -- one vote per user per problem (unique user)
 );
 
+-- Anonymous feedback: sender identity is deliberately NOT stored.
+CREATE TABLE IF NOT EXISTS feedback (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    message    TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS solves (
     contest_id     INTEGER NOT NULL,
     discord_id     TEXT NOT NULL,

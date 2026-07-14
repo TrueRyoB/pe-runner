@@ -171,6 +171,16 @@ def rec_title(display_name: str) -> str:
 REC_EMPTY = "😿 おすすめできる問題がまだ無いにゃ（投票が無いか、全部AC済みかも）。"
 
 
+# --- /feedback ---
+
+FEEDBACK_ACK = "📨 匿名でフィードバックを送ったにゃ！ありがとにゃ〜（送信者は記録してないにゃ）"
+FEEDBACK_EMPTY = "📭 まだフィードバックは無いにゃ。"
+
+
+def feedback_title(n: int) -> str:
+    return f"📨 フィードバック（全{n}件・匿名）"
+
+
 # --- /tweet ---
 
 NO_CONTEST_TWEET = "😿 まだツイートできるコンテストが無いにゃ。"

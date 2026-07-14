@@ -530,6 +530,31 @@ async def say(interaction: discord.Interaction, message: str,
         allowed_mentions=discord.AllowedMentions.none())
 
 
+@tree.command(name="feedback", description="匿名でフィードバックを送るにゃ")
+@app_commands.describe(message="送りたい内容（匿名・送信者は記録しないにゃ）")
+async def feedback(interaction: discord.Interaction, message: str):
+    db.add_feedback(message.strip())
+    await interaction.response.send_message(msg.FEEDBACK_ACK, ephemeral=True)
+
+
+@tree.command(name="feedback_list", description="届いたフィードバックを見る（オーナーのみ）")
+@app_commands.describe(limit="表示件数（1〜50、既定20）")
+async def feedback_list(interaction: discord.Interaction,
+                        limit: app_commands.Range[int, 1, 50] = 20):
+    if not is_owner(interaction.user):
+        await interaction.response.send_message(msg.NOT_OWNER, ephemeral=True)
+        return
+    rows = db.list_feedback(limit)
+    if not rows:
+        await interaction.response.send_message(msg.FEEDBACK_EMPTY, ephemeral=True)
+        return
+    e = discord.Embed(title=msg.feedback_title(db.feedback_count()), color=0x1abc9c)
+    e.description = "\n\n".join(
+        f"**#{r['id']}** ({r['created_at'].replace('T', ' ')})\n{r['message']}"
+        for r in rows)[:4000]
+    await interaction.response.send_message(embed=e, ephemeral=True)
+
+
 @tree.command(name="service", description="使えるコマンド一覧を表示するにゃ")
 async def service(interaction: discord.Interaction):
     e = discord.Embed(title="🐾 オイラーにゃん コマンド一覧", color=0xf1c40f)
@@ -544,8 +569,9 @@ async def service(interaction: discord.Interaction):
         "**/rating** — コミュニティ・レーティング（AtCoder風・非活動で減衰）",
         "**/introduce** — オイラーにゃんの自己紹介（10秒で消える）",
         "**/say** `message` `seconds` — 指定内容を喋らせる（指定秒で消える）",
+        "**/feedback** `message` — 匿名でフィードバックを送る",
         "**/service** — このコマンド一覧",
-        "（botメッセージを右クリック→アプリ→「botメッセージを削除」はオーナー限定にゃ）",
+        "（`/feedback_list`・botメッセージ削除はオーナー限定にゃ）",
     ])
     await interaction.response.send_message(embed=e, ephemeral=True)
 

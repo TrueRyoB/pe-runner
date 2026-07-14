@@ -326,5 +326,21 @@ def all_performances() -> list[dict]:
         "ORDER BY f.at_epoch DESC")
 
 
+# --- anonymous feedback (no sender identity stored) ---
+
+def add_feedback(message: str):
+    _write("INSERT INTO feedback (message, created_at) VALUES (?,?)",
+           (message, _now_iso()))
+
+
+def list_feedback(limit: int = 20) -> list[dict]:
+    return _rows("SELECT id, message, created_at FROM feedback "
+                 "ORDER BY id DESC LIMIT ?", (limit,))
+
+
+def feedback_count() -> int:
+    return _row("SELECT COUNT(*) AS n FROM feedback")["n"]
+
+
 def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S")
