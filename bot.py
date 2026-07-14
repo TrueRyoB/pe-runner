@@ -373,6 +373,24 @@ async def submit(interaction: discord.Interaction):
     await interaction.response.send_message(msg.SUBMIT_PROMPT, view=view, ephemeral=True)
 
 
+def is_owner(user: discord.abc.User) -> bool:
+    """True only for the configured OWNER (by username or numeric ID)."""
+    o = config.OWNER.strip()
+    return bool(o) and (user.name == o or str(user.id) == o)
+
+
+@tree.context_menu(name="botメッセージを削除")
+async def delete_bot_message(interaction: discord.Interaction, message: discord.Message):
+    if not is_owner(interaction.user):
+        await interaction.response.send_message(msg.NOT_OWNER, ephemeral=True)
+        return
+    if message.author.id != interaction.client.user.id:
+        await interaction.response.send_message(msg.NOT_BOT_MESSAGE, ephemeral=True)
+        return
+    await message.delete()
+    await interaction.response.send_message(msg.DELETED, ephemeral=True)
+
+
 @tree.command(name="leaderboard", description="現在の順位表を表示するにゃ")
 async def leaderboard_cmd(interaction: discord.Interaction):
     contest_row = db.latest_running_contest(interaction.guild_id)

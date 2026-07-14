@@ -123,6 +123,10 @@ def submit_ok(pid: int, points: int) -> str:
 
 # --- /leaderboard & embeds ---
 
+NOT_OWNER = "🐾 これはオーナーだけができるにゃ。ごめんにゃ！"
+NOT_BOT_MESSAGE = "🙀 ぉぃㇻ(bot)のメッセージだけ消せるにゃ。"
+DELETED = "🗑️ 消したにゃ！"
+
 NO_CONTEST = "😿 まだコンテストがないにゃ。"
 LB_EMPTY = "🐾 まだ誰も提出してないにゃ。一番乗りはキミかもにゃ！"
 
