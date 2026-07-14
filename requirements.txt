@@ -3,3 +3,7 @@ requests>=2.31
 beautifulsoup4>=4.12
 lxml>=5.0
 python-dotenv>=1.0
+
+# Optional: only for tools/dump_pe_cookie.py (one-time cookie extraction helper).
+# Not needed by the bot at runtime.
+# browser_cookie3>=0.19

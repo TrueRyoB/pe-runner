@@ -15,10 +15,28 @@
 
 ### 1. Project Euler 側
 1. bot 専用の PE アカウントを1つ作る（無料）。
-2. ブラウザで「Keep me logged in」でログインし、DevTools → Application → Cookies から
-   `PHPSESSID`（と可能なら永続 cookie）をコピー。→ `.env` の `PE_SESSION_COOKIE` 等へ。
+2. ブラウザで「Keep me logged in」で projecteuler.net にログインする。
+   その後、cookie を `.env` の `PE_SESSION_COOKIE` に入れる。取得方法は2通り:
+
+   **方法A（おすすめ・コマンド一発）**: 付属ツールがローカルブラウザから読み出して
+   `.env` に貼れる形で出力する。`PHPSESSID` は HttpOnly なので console の
+   `document.cookie` では読めない → このツールを使う。
+   ```bash
+   pip install browser_cookie3
+   python tools/dump_pe_cookie.py            # 全ブラウザを試す
+   python tools/dump_pe_cookie.py chrome     # ブラウザ指定
+   ```
+   出力の `PE_SESSION_COOKIE=PHPSESSID=...` 行をそのまま `.env` に貼る。
+   （macOSでChrome系は Keychain の確認が出ることがあるが正常）
+
+   **方法B（インストール不要）**: DevTools → **Network** タブでページを再読込 →
+   projecteuler.net へのリクエストを選択 → **Request Headers** の `Cookie:` に
+   `PHPSESSID=...` が入っている。それをコピー。
+   （Application → Cookies → projecteuler.net からも見える）
+
    - ※ PE ログインは CAPTCHA があるため自動ログインはしない。cookie 方式で運用する。
-   - ※ cookie 失効時は bot が `SessionExpired` を通知するので、都度貼り直す。
+   - ※ cookie 失効時は bot が `SessionExpired` を通知するので、都度貼り直す
+     （方法Aを再実行するのが速い）。
 3. **friend 登録**: 参加者の friend key を bot アカウントの friends ページに追加する
    （運営が手動追加。これで bot がその人の progress を読めるようになる）。
 
