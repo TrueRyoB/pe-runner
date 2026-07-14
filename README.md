@@ -102,6 +102,28 @@ Discord サーバに `/register` などが出れば完了。**この時点で自
 - 状態ファイルは repo 直下：SQLite `pe_runner.db` と cookie ジャー `pe_cookies.pkl`。
   バックアップはこの2つをコピーするだけ（どちらも gitignore 済み）。
 
+## Render + cron-job.org での常時稼働（クレジットカード不要）
+
+カードが作れない場合の選択肢。Render 無料 Web サービスは 15 分無アクセスでスリープするので、
+外部の cron-job.org から定期 ping して起こし続ける。`bot.py` は `$PORT` に軽量 HTTP
+ヘルスサーバを同居させてあるので、Render の要件（HTTP 応答）と ping 先を両立できる。
+
+⚠️ **揮発ディスク注意**: Render 無料は再デプロイ/再起動/スリープで `pe_runner.db`
+（登録・順位表）と `pe_cookies.pkl` が消える。コンテストは短時間で、開催中に push しない。
+cookie は起動時に `PE_COOKIE` 環境変数から再シードされる。恒久化するなら外部 DB（Turso 等・
+無料/カード不要）へ移行。
+
+1. **Render 登録（カード不要）** → New → **Web Service** → GitHub `TrueRyoB/pe-runner` を接続
+   （`render.yaml` があるので Blueprint でも可）。
+2. **環境変数をダッシュボードで設定**（コミットしない）:
+   `DISCORD_TOKEN` / `GUILD_ID` / `PE_COOKIE`(=`Cookie:` ヘッダ全体) / `PE_BOT_USERNAME` / `TIMEZONE`
+3. デプロイ → 発行 URL（例 `https://pe-runner.onrender.com`）を控える。ログで「…ログインしたにゃ」を確認。
+4. **cron-job.org 登録（カード不要）** → 新規ジョブで発行 URL を **10 分間隔**で GET（15 分スリープの手前）。
+5. PE 認証が Render の IP から通るかログで確認（`SessionExpired` が出るなら cookie を取り直して環境変数を更新）。
+
+- 750 インスタンス時間/月・無料枠内（24/7 ≒ 730h）。
+- ビルド/起動は `render.yaml` 準拠（`pip install -r requirements.txt` / `python bot.py`）。
+
 ## コマンド
 
 | コマンド | 用途 |

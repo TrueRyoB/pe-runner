@@ -1,0 +1,29 @@
+# Render Blueprint. Deploy: Render dashboard → New → Blueprint → pick this repo,
+# OR New → Web Service and set build/start commands manually to match this.
+#
+# NOTE: Render free web services use an EPHEMERAL filesystem — pe_runner.db and
+# pe_cookies.pkl are wiped on every redeploy/restart. Keep contests short and
+# avoid pushing during a live contest. The bot re-seeds its PE cookie from the
+# PE_COOKIE env var on each start.
+services:
+  - type: web
+    name: pe-runner
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      # Secrets — set these in the Render dashboard (sync:false = not stored in git).
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: GUILD_ID
+        sync: false
+      - key: PE_COOKIE          # full "Cookie:" header, e.g. "__Host-PHPSESSID=..; keep_alive=.."
+        sync: false
+      - key: PE_BOT_USERNAME
+        sync: false
+      # Non-secret defaults.
+      - key: TIMEZONE
+        value: Asia/Tokyo
+      - key: PYTHON_VERSION
+        value: "3.12"

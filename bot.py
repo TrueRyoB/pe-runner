@@ -5,8 +5,11 @@ All user-facing text lives in messages.py (spoken by the mascot オイラーに�
 from __future__ import annotations
 
 import asyncio
+import os
+import threading
 import time
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import discord
 from discord import app_commands
@@ -325,8 +328,35 @@ async def on_ready():
     print(msg.ready_log(client.user))
 
 
+class _HealthHandler(BaseHTTPRequestHandler):
+    """Tiny HTTP endpoint so PaaS platforms (Render free) see a live web service
+    and an external pinger (cron-job.org) can keep it awake."""
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"ok")
+
+    def log_message(self, *args):  # silence access logs
+        pass
+
+
+def start_keepalive_server():
+    """Bind to $PORT (Render requires web services to open a port). No-op locally
+    if PORT is unset AND we can't bind — but we default to 8080 so it always runs."""
+    port = int(os.getenv("PORT", "8080"))
+    try:
+        srv = HTTPServer(("0.0.0.0", port), _HealthHandler)
+    except OSError as e:
+        print(f"keepalive server not started ({e})")
+        return
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    print(f"keepalive HTTP server on :{port}")
+
+
 def main():
-    config.require("DISCORD_TOKEN", "GUILD_ID", "PE_BOT_USERNAME", "PE_SESSION_COOKIE")
+    config.require("DISCORD_TOKEN", "GUILD_ID", "PE_BOT_USERNAME")
+    start_keepalive_server()
     client.run(config.DISCORD_TOKEN)
 
 
