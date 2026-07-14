@@ -278,7 +278,7 @@ async def create_contest(interaction: discord.Interaction, start: str,
     # Public recruiting announcement with Join/Leave buttons (no problems yet —
     # they're drawn at draw_epoch from whoever actually joined).
     sent = await interaction.channel.send(
-        msg.contest_recruiting(name, start_epoch, draw_epoch, spec),
+        msg.contest_recruiting(name, start_epoch, draw_epoch, []),
         view=JoinView())
     db.set_join_message(cid, sent.id)
     await interaction.followup.send(msg.create_ack(), ephemeral=True)
@@ -300,6 +300,18 @@ class JoinView(discord.ui.View):
             return None
         return c
 
+    async def _refresh(self, interaction, c):
+        """Re-render the recruiting message with the current joined list (mentions
+        shown but not pinged)."""
+        ids = [p["discord_id"] for p in db.joined_participants(c["id"])]
+        try:
+            await interaction.message.edit(
+                content=msg.contest_recruiting(
+                    c["name"], c["start_epoch"], c["draw_epoch"], ids),
+                view=self, allowed_mentions=discord.AllowedMentions.none())
+        except Exception:
+            pass
+
     @discord.ui.button(label="参加する 🙋", style=discord.ButtonStyle.success,
                        custom_id="contest_join")
     async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -310,6 +322,7 @@ class JoinView(discord.ui.View):
         await interaction.response.send_message(
             msg.joined(interaction.user.display_name, db.joined_count(c["id"])),
             ephemeral=True)
+        await self._refresh(interaction, c)
 
     @discord.ui.button(label="参加しない 🚪", style=discord.ButtonStyle.secondary,
                        custom_id="contest_leave")
@@ -321,6 +334,7 @@ class JoinView(discord.ui.View):
         await interaction.response.send_message(
             msg.left(interaction.user.display_name, db.joined_count(c["id"])),
             ephemeral=True)
+        await self._refresh(interaction, c)
 
 
 class SubmitView(discord.ui.View):

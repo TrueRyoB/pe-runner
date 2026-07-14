@@ -90,12 +90,13 @@ def select_fail(err) -> str:
             "難易度タイプをゆるめるか、問題数を減らしてみてにゃ。")
 
 
-def contest_recruiting(name: str, start_epoch: int, draw_epoch: int, spec: dict) -> str:
+def contest_recruiting(name: str, start_epoch: int, draw_epoch: int,
+                       joined_ids: list[int]) -> str:
+    who = " ".join(f"<@{i}>" for i in joined_ids) if joined_ids else "まだいないにゃ"
     return (f"🎟️ **{name}** 参加受付中にゃ！\n"
-            f"開始: <t:{start_epoch}:F> / {spec['duration']}分 / "
-            f"難易度{spec['min']}-{spec['max']}% / {spec['num']}問\n"
-            f"出る人は下の **参加する 🙋** ボタンを押してにゃ！（`/register` 済みが必要）\n"
-            f"問題は <t:{draw_epoch}:F> 頃に、**参加者が未ACのものだけ**から抽選して発表にゃ〜。")
+            f"開始 <t:{start_epoch}:F> ・ 問題発表 <t:{draw_epoch}:F>頃\n"
+            f"参加は下の **参加する 🙋** にゃ！\n"
+            f"**参加者({len(joined_ids)}):** {who}")
 
 
 def contest_drawn(name: str, start_epoch: int, problem_list: str, joined: int) -> str:
