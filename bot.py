@@ -29,6 +29,7 @@ except Exception:
 # Live status, surfaced on the health endpoint for remote diagnosis.
 STATUS = {"ready": False, "user": None, "guilds": [], "synced": {}, "errors": [],
           "started_at": None, "db": None}
+_views_added = False
 
 import config
 import contest as contest_mod
@@ -110,9 +111,9 @@ def leaderboard_embed(contest_row) -> discord.Embed:
         color=0x2ecc71 if status == "running" else 0x95a5a6,
     )
 
-    # Every registered participant is a row (0-solve ones show all ·).
+    # Every JOINED participant is a row (0-solve ones show all ·).
     entries = []
-    for p in db.all_participants():
+    for p in db.joined_participants(contest_row["id"]):
         info = lb.get(p["discord_id"])
         entries.append({
             "name": p["pe_username"],
@@ -259,48 +260,67 @@ async def create_contest(interaction: discord.Interaction, start: str,
     try:
         start_epoch = parse_start(start)
     except ValueError as e:
-        which = str(e)
         await interaction.followup.send(
-            msg.PAST_TIME if which == "past" else msg.BAD_TIME, ephemeral=True)
+            msg.PAST_TIME if str(e) == "past" else msg.BAD_TIME, ephemeral=True)
         return
 
     spec = contest_mod.CONTEST_TYPES[contest_type.value]
-    participants = db.all_participants()
-    if not participants:
-        await interaction.followup.send(msg.NO_PARTICIPANTS, ephemeral=True)
-        return
+    now = int(time.time())
+    # Draw problems at: no earlier than 1h before start and 10min after signups
+    # open, no later than 5min before start; and never in the past.
+    draw_epoch = max(now, min(start_epoch - 300, max(start_epoch - 3600, now + 600)))
 
-    try:
-        catalog = await asyncio.to_thread(pe_client.catalog)
-        excluded, unreadable = await union_solved(participants)
-    except pe_client.SessionExpired as e:
-        await interaction.followup.send(msg.session_expired(e), ephemeral=True)
-        return
-
-    # Unreadable participants (broke their friend link / deleted account) are
-    # SKIPPED — their solves can't be excluded, but they no longer block everyone
-    # else's contest. The organizer is warned (ephemeral) with the names.
-    try:
-        problems = contest_mod.select_problems(catalog, excluded, contest_type.value)
-    except ValueError as e:
-        await interaction.followup.send(msg.select_fail(e), ephemeral=True)
-        return
-
-    # Auto-generate the name from tier + start time (JST).
     when = datetime.fromtimestamp(start_epoch, config.TIMEZONE).strftime("%m-%d %H:%M")
     name = f"{spec['label']}コンテスト {when}"
     cid = db.create_contest(name, start_epoch, spec["duration"], contest_type.value,
                             spec["num"], interaction.guild_id,
-                            interaction.channel_id, interaction.user.id)
-    db.add_contest_problems(cid, problems)
-    # Public announcement (channel.send — ephemeral defer would keep it private).
-    await interaction.channel.send(
-        msg.create_ok(cid, name, start_epoch, spec["duration"],
-                      contest_type.value, len(problems)))
-    ack = msg.create_ack()
-    if unreadable:
-        ack += "\n" + msg.unreadable_note(unreadable)
-    await interaction.followup.send(ack, ephemeral=True)
+                            interaction.channel_id, interaction.user.id, draw_epoch)
+    # Public recruiting announcement with Join/Leave buttons (no problems yet —
+    # they're drawn at draw_epoch from whoever actually joined).
+    sent = await interaction.channel.send(
+        msg.contest_recruiting(name, start_epoch, draw_epoch, spec),
+        view=JoinView())
+    db.set_join_message(cid, sent.id)
+    await interaction.followup.send(msg.create_ack(), ephemeral=True)
+
+
+class JoinView(discord.ui.View):
+    """Persistent Join/Leave buttons. The contest is resolved from the message
+    the buttons live on (contest.join_message_id)."""
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    async def _resolve(self, interaction):
+        c = db.contest_by_join_message(interaction.message.id)
+        if c is None or c["status"] != "recruiting":
+            await interaction.response.send_message(msg.JOIN_CLOSED, ephemeral=True)
+            return None
+        if db.get_participant(interaction.user.id) is None:
+            await interaction.response.send_message(msg.NOT_REGISTERED, ephemeral=True)
+            return None
+        return c
+
+    @discord.ui.button(label="参加する 🙋", style=discord.ButtonStyle.success,
+                       custom_id="contest_join")
+    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
+        c = await self._resolve(interaction)
+        if not c:
+            return
+        db.join_contest(c["id"], interaction.user.id)
+        await interaction.response.send_message(
+            msg.joined(interaction.user.display_name, db.joined_count(c["id"])),
+            ephemeral=True)
+
+    @discord.ui.button(label="参加しない 🚪", style=discord.ButtonStyle.secondary,
+                       custom_id="contest_leave")
+    async def leave(self, interaction: discord.Interaction, button: discord.ui.Button):
+        c = await self._resolve(interaction)
+        if not c:
+            return
+        db.leave_contest(c["id"], interaction.user.id)
+        await interaction.response.send_message(
+            msg.left(interaction.user.display_name, db.joined_count(c["id"])),
+            ephemeral=True)
 
 
 class SubmitView(discord.ui.View):
@@ -364,6 +384,9 @@ async def submit(interaction: discord.Interaction):
     contest_row = db.latest_running_contest(interaction.guild_id)
     if not contest_row:
         await interaction.response.send_message(msg.NO_RUNNING, ephemeral=True)
+        return
+    if not db.is_joined(contest_row["id"], interaction.user.id):
+        await interaction.response.send_message(msg.NOT_JOINED, ephemeral=True)
         return
     view = SubmitView(contest_row, part["pe_username"], interaction.user.id)
     if not view.children:
@@ -560,9 +583,53 @@ async def rating_cmd(interaction: discord.Interaction):
 
 # ---------------------------------------------------------------- scheduler
 
+def _problem_list_md(problems) -> str:
+    """Markdown bullet list. Accepts rows with 'problem_id' or dicts with 'id'."""
+    out = []
+    for p in problems:
+        pid = p["problem_id"] if "problem_id" in p.keys() else p["id"]
+        out.append(f"• [Problem {pid}](https://projecteuler.net/problem={pid}) "
+                   f"— {p['difficulty']}pt")
+    return "\n".join(out)
+
+
+async def _draw_contest(contest_row):
+    """Draw problems from the JOINED participants' all-unsolved pool, post the list."""
+    cid = contest_row["id"]
+    channel = client.get_channel(contest_row["channel_id"])
+    joined = db.joined_participants(cid)
+    if not joined:
+        db.set_contest_status(cid, "finished")
+        if channel:
+            await channel.send(msg.contest_no_joiners(contest_row["name"]))
+        return
+    try:
+        catalog = await asyncio.to_thread(pe_client.catalog)
+        excluded, _unreadable = await union_solved(joined)
+    except pe_client.SessionExpired:
+        return  # leave recruiting; retry on the next tick
+    try:
+        problems = contest_mod.select_problems(catalog, excluded, contest_row["contest_type"])
+    except ValueError as e:
+        db.set_contest_status(cid, "finished")
+        if channel:
+            await channel.send(msg.draw_failed(contest_row["name"], e))
+        return
+    db.add_contest_problems(cid, problems)
+    db.set_contest_status(cid, "scheduled")
+    if channel:
+        await channel.send(msg.contest_drawn(
+            contest_row["name"], contest_row["start_epoch"],
+            _problem_list_md(problems), db.joined_count(cid)))
+
+
 @tasks.loop(seconds=30)
 async def scheduler():
     now = int(time.time())
+    # recruiting -> scheduled (draw problems from the joined participants)
+    for c in db.contests_by_status("recruiting"):
+        if c["draw_epoch"] is not None and now >= c["draw_epoch"]:
+            await _draw_contest(c)
     # scheduled -> running
     for c in db.contests_by_status("scheduled"):
         if now >= c["start_epoch"]:
@@ -610,6 +677,10 @@ async def on_ready():
         except Exception as e:
             STATUS["errors"].append(f"{getattr(g, 'id', '?')}: {e!r}")
             print(f"⚠️ command sync failed for guild {getattr(g, 'id', '?')}: {e!r}")
+    global _views_added
+    if not _views_added:
+        client.add_view(JoinView())  # persistent Join/Leave buttons survive restarts
+        _views_added = True
     if not scheduler.is_running():
         scheduler.start()
     STATUS["ready"] = True

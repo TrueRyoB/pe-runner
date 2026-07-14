@@ -57,7 +57,7 @@ REGISTER_PANEL_TEXT = (
 
 
 def create_ack() -> str:
-    return "✅ コンテストを作ったにゃ！（みんなに公開したにゃ）"
+    return "✅ 参加受付を開始したにゃ！（みんなに公開したにゃ）"
 
 
 def register_warn(count: int, limit: int) -> str:
@@ -90,12 +90,37 @@ def select_fail(err) -> str:
             "難易度タイプをゆるめるか、問題数を減らしてみてにゃ。")
 
 
-def create_ok(cid: int, name: str, start_epoch: int, duration: int,
-              ctype: str, n: int) -> str:
-    return (f"😸 コンテスト #{cid} **{name}** を用意したにゃ！\n"
-            f"開始: <t:{start_epoch}:F> / {duration}分 / タイプ `{ctype}` / {n}問\n"
-            f"（登録者全員がまだ解いてない問題だけ選んだにゃ！）\n"
-            f"問題番号は開始時刻に発表するにゃ〜。楽しみにしててにゃ！")
+def contest_recruiting(name: str, start_epoch: int, draw_epoch: int, spec: dict) -> str:
+    return (f"🎟️ **{name}** 参加受付中にゃ！\n"
+            f"開始: <t:{start_epoch}:F> / {spec['duration']}分 / "
+            f"難易度{spec['min']}-{spec['max']}% / {spec['num']}問\n"
+            f"出る人は下の **参加する 🙋** ボタンを押してにゃ！（`/register` 済みが必要）\n"
+            f"問題は <t:{draw_epoch}:F> 頃に、**参加者が未ACのものだけ**から抽選して発表にゃ〜。")
+
+
+def contest_drawn(name: str, start_epoch: int, problem_list: str, joined: int) -> str:
+    return (f"🎲 **{name}** の問題を抽選したにゃ！（参加 {joined}人・全員未AC）\n"
+            f"開始: <t:{start_epoch}:F>\n\n{problem_list}")
+
+
+def contest_no_joiners(name: str) -> str:
+    return f"😿 **{name}** は参加者がいなかったので中止にしたにゃ…"
+
+
+def draw_failed(name: str, err) -> str:
+    return (f"😾 **{name}** の問題抽選に失敗したにゃ…（{err}）中止にするにゃ。")
+
+
+JOIN_CLOSED = "🐾 このコンテストの参加受付はもう終わってるにゃ。"
+NOT_JOINED = "🙋 このコンテストに参加してないにゃ。次回は受付中に「参加する」を押してにゃ！"
+
+
+def joined(display_name: str, count: int) -> str:
+    return f"🙋 {display_name}さん、参加登録したにゃ！（現在 {count}人）"
+
+
+def left(display_name: str, count: int) -> str:
+    return f"🚪 {display_name}さん、参加を取り消したにゃ。（現在 {count}人）"
 
 
 # --- /submit ---

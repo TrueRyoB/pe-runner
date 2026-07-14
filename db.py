@@ -61,6 +61,17 @@ def init():
     schema = Path(__file__).with_name("schema.sql").read_text()
     conn().executescript(schema)
     conn().commit()
+    _migrate()
+
+
+def _migrate():
+    # Add columns that existing (already-created) tables may lack. SQLite/libSQL
+    # has no "ADD COLUMN IF NOT EXISTS", so try and ignore "duplicate column".
+    for col, decl in (("join_message_id", "INTEGER"), ("draw_epoch", "INTEGER")):
+        try:
+            _write(f"ALTER TABLE contests ADD COLUMN {col} {decl}")
+        except Exception:
+            pass
 
 
 # --- participants ---
@@ -90,16 +101,61 @@ def participant_count() -> int:
 # --- contests ---
 
 def create_contest(name, start_epoch, duration_min, contest_type, num_problems,
-                   guild_id, channel_id, created_by) -> int:
+                   guild_id, channel_id, created_by, draw_epoch) -> int:
     row = _row(
         "INSERT INTO contests (name, start_epoch, duration_min, contest_type, "
-        "num_problems, guild_id, channel_id, created_by, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?) RETURNING id",
+        "num_problems, status, guild_id, channel_id, created_by, created_at, draw_epoch) "
+        "VALUES (?,?,?,?,?,'recruiting',?,?,?,?,?) RETURNING id",
         (name, start_epoch, duration_min, contest_type, num_problems,
-         guild_id, channel_id, created_by, _now_iso()),
+         guild_id, channel_id, created_by, _now_iso(), draw_epoch),
     )
     conn().commit()
     return row["id"]
+
+
+def set_join_message(contest_id: int, message_id: int):
+    _write("UPDATE contests SET join_message_id=? WHERE id=?", (message_id, contest_id))
+
+
+def contest_by_join_message(message_id: int) -> dict | None:
+    return _row("SELECT * FROM contests WHERE join_message_id=?", (message_id,))
+
+
+# --- contest join list (per-contest opt-in) ---
+
+def join_contest(contest_id: int, discord_id: int) -> bool:
+    try:
+        _write("INSERT INTO contest_participants (contest_id, discord_id, joined_at) "
+               "VALUES (?,?,?)", (contest_id, discord_id, _now_iso()))
+        return True
+    except Exception as e:
+        if _is_unique_violation(e):
+            return False
+        raise
+
+
+def leave_contest(contest_id: int, discord_id: int) -> bool:
+    before = is_joined(contest_id, discord_id)
+    _write("DELETE FROM contest_participants WHERE contest_id=? AND discord_id=?",
+           (contest_id, discord_id))
+    return before
+
+
+def is_joined(contest_id: int, discord_id: int) -> bool:
+    return _row("SELECT 1 AS x FROM contest_participants WHERE contest_id=? AND discord_id=?",
+                (contest_id, discord_id)) is not None
+
+
+def joined_participants(contest_id: int) -> list[dict]:
+    return _rows(
+        "SELECT p.discord_id, p.pe_username, p.friend_key "
+        "FROM contest_participants cp JOIN participants p ON p.discord_id = cp.discord_id "
+        "WHERE cp.contest_id=?", (contest_id,))
+
+
+def joined_count(contest_id: int) -> int:
+    return _row("SELECT COUNT(*) AS n FROM contest_participants WHERE contest_id=?",
+                (contest_id,))["n"]
 
 
 def add_contest_problems(contest_id: int, problems: list[dict]):

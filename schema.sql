@@ -12,12 +12,21 @@ CREATE TABLE IF NOT EXISTS contests (
     duration_min  INTEGER NOT NULL,
     contest_type  TEXT NOT NULL,
     num_problems  INTEGER NOT NULL,
-    status        TEXT NOT NULL DEFAULT 'scheduled',  -- scheduled | running | finished
+    status        TEXT NOT NULL DEFAULT 'recruiting',  -- recruiting | scheduled | running | finished
     guild_id      INTEGER,
     channel_id    INTEGER,
     leaderboard_message_id INTEGER,
+    join_message_id INTEGER,
+    draw_epoch    INTEGER,        -- when problems are drawn (before start)
     created_by    INTEGER,
     created_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS contest_participants (
+    contest_id INTEGER NOT NULL,
+    discord_id INTEGER NOT NULL,
+    joined_at  TEXT NOT NULL,
+    PRIMARY KEY (contest_id, discord_id)
 );
 
 CREATE TABLE IF NOT EXISTS contest_problems (
