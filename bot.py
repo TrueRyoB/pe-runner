@@ -29,7 +29,6 @@ except Exception:
 # Live status, surfaced on the health endpoint for remote diagnosis.
 STATUS = {"ready": False, "user": None, "guilds": [], "synced": {}, "errors": [],
           "started_at": None, "db": None}
-_panel_registered = False
 
 import config
 import contest as contest_mod
@@ -220,47 +219,13 @@ async def _finish_register(interaction: discord.Interaction, public_msg, private
     await interaction.followup.send(private_msg, ephemeral=True)
 
 
-class RegisterModal(discord.ui.Modal):
-    """Registration form. Prefills the PE username when updating an existing entry."""
-    def __init__(self, existing_username: str | None = None):
-        super().__init__(title="参加登録にゃ 🐾")
-        self.pe_username = discord.ui.TextInput(
-            label="PEユーザ名", placeholder="Project Eulerのユーザ名",
-            default=existing_username or "", required=True, max_length=64)
-        self.friend_key = discord.ui.TextInput(
-            label="friend key", placeholder="例: 123456_xxxxxxxxxxxx",
-            required=True, max_length=128)
-        self.add_item(self.pe_username)
-        self.add_item(self.friend_key)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        public_msg, private_msg = await _do_register(
-            interaction.user.id, interaction.user.display_name,
-            str(self.pe_username), str(self.friend_key))
-        await _finish_register(interaction, public_msg, private_msg)
-
-
-class RegisterPanel(discord.ui.View):
-    """Persistent view: a button that opens the registration modal, guiding
-    unregistered users to register and letting registered users update."""
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="参加登録するにゃ 🐾", style=discord.ButtonStyle.primary,
-                       custom_id="pe_register_btn")
-    async def register_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        part = db.get_participant(interaction.user.id)
-        # Not registered -> guide into the (blank) registration form.
-        # Already registered -> same form, prefilled, so it doubles as an update.
-        existing = part["pe_username"] if part else None
-        await interaction.response.send_modal(RegisterModal(existing_username=existing))
-
-
-@tree.command(name="register", description="参加登録ボタンを設置するにゃ（ボタンから登録）")
-async def register(interaction: discord.Interaction):
-    # The panel itself is the (public) response — no extra "設置したにゃ" ack.
-    await interaction.response.send_message(msg.REGISTER_PANEL_TEXT, view=RegisterPanel())
+@tree.command(name="register", description="PEユーザ名とfriend keyで参加登録するにゃ")
+@app_commands.describe(pe_username="Project Eulerのユーザ名", friend_key="あなたのfriend key")
+async def register(interaction: discord.Interaction, pe_username: str, friend_key: str):
+    await interaction.response.defer(ephemeral=True)
+    public_msg, private_msg = await _do_register(
+        interaction.user.id, interaction.user.display_name, pe_username, friend_key)
+    await _finish_register(interaction, public_msg, private_msg)
 
 
 def _contest_type_choices():
@@ -517,7 +482,7 @@ async def tweet(interaction: discord.Interaction):
 async def service(interaction: discord.Interaction):
     e = discord.Embed(title="🐾 オイラーにゃん コマンド一覧", color=0xf1c40f)
     e.description = "\n".join([
-        "**/register** — 参加登録ボタンを設置（ボタン→フォームで登録）",
+        "**/register** `pe_username` `friend_key` — 参加登録",
         "**/create_contest** `start` `contest_type` — コンテスト作成（誰でも）",
         "**/submit** — ACした問題を提出（開催中のみ）",
         "**/leaderboard** — 順位表（参加者 × 各問題のAC状況）",
@@ -618,10 +583,6 @@ async def on_ready():
         except Exception as e:
             STATUS["errors"].append(f"{getattr(g, 'id', '?')}: {e!r}")
             print(f"⚠️ command sync failed for guild {getattr(g, 'id', '?')}: {e!r}")
-    global _panel_registered
-    if not _panel_registered:
-        client.add_view(RegisterPanel())  # make the button work after restarts
-        _panel_registered = True
     if not scheduler.is_running():
         scheduler.start()
     STATUS["ready"] = True
