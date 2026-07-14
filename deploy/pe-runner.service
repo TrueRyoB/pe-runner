@@ -1,0 +1,17 @@
+[Unit]
+Description=Project Euler contest Discord bot (pe-runner)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/pe-runner
+ExecStart=/home/ubuntu/pe-runner/.venv/bin/python bot.py
+Restart=on-failure
+RestartSec=10
+# Reload cookie/token changes without editing the unit:
+EnvironmentFile=/home/ubuntu/pe-runner/.env
+
+[Install]
+WantedBy=multi-user.target
