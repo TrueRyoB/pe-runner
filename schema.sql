@@ -28,6 +28,14 @@ CREATE TABLE IF NOT EXISTS contest_problems (
     PRIMARY KEY (contest_id, problem_id)
 );
 
+CREATE TABLE IF NOT EXISTS performances (
+    discord_id INTEGER NOT NULL,
+    contest_id INTEGER NOT NULL,
+    perf       INTEGER NOT NULL,   -- AtCoder-style performance for that contest
+    at_epoch   INTEGER NOT NULL,   -- when the contest finished (for time decay)
+    PRIMARY KEY (discord_id, contest_id)
+);
+
 CREATE TABLE IF NOT EXISTS votes (
     discord_id INTEGER NOT NULL,
     problem_id INTEGER NOT NULL,

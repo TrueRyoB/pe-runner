@@ -36,6 +36,7 @@ import contest as contest_mod
 import db
 import messages as msg
 import pe_client
+import rating
 
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
@@ -136,6 +137,22 @@ def leaderboard_embed(contest_row) -> discord.Embed:
     e.description = "```\n" + head + "\n" + "\n".join(body) + "\n```"
     e.set_footer(text=msg.lb_footer(max_pts, len(problems), status))
     return e
+
+
+def record_contest_performances(contest_row):
+    """At contest finish, store each participant's AtCoder-style performance.
+    Only participants who solved >=1 (i.e. appear in the leaderboard) get one, so
+    skipping/not-solving never records a (rating-lowering) performance."""
+    cid = contest_row["id"]
+    if db.contest_has_performances(cid):
+        return
+    lb = db.leaderboard(cid)  # ranked: pts desc, last_solve asc
+    max_pts = sum(p["difficulty"] for p in db.contest_problems(cid)) or 1
+    field = len(lb)
+    at = int(time.time())
+    for i, r in enumerate(lb):
+        perf = rating.performance(i + 1, field, r["pts"] or 0, max_pts)
+        db.record_performance(r["discord_id"], cid, perf, at)
 
 
 async def refresh_leaderboard(contest_row):
@@ -508,10 +525,46 @@ async def service(interaction: discord.Interaction):
         "**/recommend** `problem_id` — 問題を推薦（投票）",
         "**/recommendations** — 人気のおすすめ問題（未ACのみ・最大5件）",
         "**/tweet** — 最後のコンテスト結果のツイート文を生成",
+        "**/rating** — コミュニティ・レーティング（AtCoder風・非活動で減衰）",
         "**/service** — このコマンド一覧",
         "（botメッセージを右クリック→アプリ→「botメッセージを削除」はオーナー限定にゃ）",
     ])
     await interaction.response.send_message(embed=e, ephemeral=True)
+
+
+@tree.command(name="rating", description="コミュニティ・レーティングを表示するにゃ")
+async def rating_cmd(interaction: discord.Interaction):
+    perfs = db.all_performances()  # joined w/ names, at_epoch DESC (=> recent first)
+    if not perfs:
+        await interaction.response.send_message(msg.RATING_EMPTY, ephemeral=True)
+        return
+    by_user: dict = {}
+    for row in perfs:
+        u = by_user.setdefault(row["discord_id"],
+                               {"name": row["pe_username"], "perfs": [], "last": 0})
+        u["perfs"].append(row["perf"])            # already recent-first
+        u["last"] = max(u["last"], row["at_epoch"])
+    now = int(time.time())
+    ranked = []
+    for u in by_user.values():
+        r = rating.compute(u["perfs"], u["last"], now)
+        if r:
+            ranked.append((u["name"], r))
+    ranked.sort(key=lambda x: -x[1]["rating"])
+
+    name_w = min(max(len(n) for n, _ in ranked), 14)
+
+    def line(rank, name, r):
+        days = int(r["days_inactive"])
+        tag = f"{days}d" if days > 0 else "今"
+        return f"{rank:>2} {name[:name_w].ljust(name_w)} {r['rating']:>5} {r['n']:>2}戦 {tag:>4}"
+
+    head = f"{'#':>2} {'name'.ljust(name_w)} {'rate':>5} {'':>3} {'最終':>4}"
+    body = [line(i, n, r) for i, (n, r) in enumerate(ranked, 1)]
+    e = discord.Embed(title=msg.RATING_TITLE, color=0x9b59b6)
+    e.description = "```\n" + head + "\n" + "\n".join(body) + "\n```"
+    e.set_footer(text=msg.rating_footer())
+    await interaction.response.send_message(embed=e)
 
 
 # ---------------------------------------------------------------- scheduler
@@ -535,6 +588,7 @@ async def scheduler():
     for c in db.contests_by_status("running"):
         if now >= c["start_epoch"] + c["duration_min"] * 60:
             db.set_contest_status(c["id"], "finished")
+            record_contest_performances(db.get_contest(c["id"]))  # update ratings
             await refresh_leaderboard(db.get_contest(c["id"]))
             channel = client.get_channel(c["channel_id"])
             if channel:

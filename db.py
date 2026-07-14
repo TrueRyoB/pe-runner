@@ -214,5 +214,28 @@ def vote_counts() -> list[tuple]:
         "GROUP BY problem_id ORDER BY votes DESC, problem_id ASC")]
 
 
+# --- performances / rating ---
+
+def record_performance(discord_id: int, contest_id: int, perf: int, at_epoch: int):
+    _write(
+        "INSERT OR IGNORE INTO performances (discord_id, contest_id, perf, at_epoch) "
+        "VALUES (?,?,?,?)",
+        (discord_id, contest_id, perf, at_epoch),
+    )
+
+
+def contest_has_performances(contest_id: int) -> bool:
+    return _row("SELECT 1 AS x FROM performances WHERE contest_id=? LIMIT 1",
+                (contest_id,)) is not None
+
+
+def all_performances() -> list[dict]:
+    """Every performance row joined with the participant's PE username."""
+    return _rows(
+        "SELECT f.discord_id, p.pe_username, f.perf, f.at_epoch "
+        "FROM performances f JOIN participants p ON p.discord_id = f.discord_id "
+        "ORDER BY f.at_epoch DESC")
+
+
 def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S")
