@@ -22,9 +22,10 @@
    `.env` に貼れる形で出力する。`PHPSESSID` は HttpOnly なので console の
    `document.cookie` では読めない → このツールを使う。
    ```bash
-   pip install browser_cookie3
-   python tools/dump_pe_cookie.py            # 全ブラウザを試す
-   python tools/dump_pe_cookie.py chrome     # ブラウザ指定
+   # browser_cookie3 はセットアップ時の .venv に入れておく
+   #（未導入なら: python3 -m pip install browser_cookie3  ※ pip 単体は使えないことが多い）
+   .venv/bin/python tools/dump_pe_cookie.py            # 全ブラウザを試す
+   .venv/bin/python tools/dump_pe_cookie.py chrome     # ブラウザ指定
    ```
    出力の `PE_SESSION_COOKIE=PHPSESSID=...` 行をそのまま `.env` に貼る。
    （macOSでChrome系は Keychain の確認が出ることがあるが正常）
