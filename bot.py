@@ -320,17 +320,22 @@ async def scheduler():
 @client.event
 async def on_ready():
     db.init()
-    guild = discord.Object(id=config.GUILD_ID)
-    try:
-        tree.copy_global_to(guild=guild)
-        synced = await tree.sync(guild=guild)
-        print(f"synced {len(synced)} slash commands to guild {config.GUILD_ID}")
-    except discord.Forbidden:
-        print("⚠️ command sync 403 (Missing Access): re-invite the bot with the "
-              "'applications.commands' scope AND make sure GUILD_ID is the server the "
-              "bot is actually in. Bot stays online; commands just won't appear yet.")
-    except Exception as e:
-        print(f"⚠️ command sync failed: {e!r}")
+    # Sync to every guild the bot is actually in (robust against a wrong GUILD_ID).
+    # Fall back to GUILD_ID if guild list isn't populated yet.
+    targets = list(client.guilds) or (
+        [discord.Object(id=config.GUILD_ID)] if config.GUILD_ID else [])
+    if not targets:
+        print("⚠️ bot is in no guilds — invite it to your server first.")
+    for g in targets:
+        try:
+            tree.copy_global_to(guild=g)
+            synced = await tree.sync(guild=g)
+            print(f"synced {len(synced)} slash commands to guild {g.id}")
+        except discord.Forbidden:
+            print(f"⚠️ 403 Missing Access syncing to guild {g.id}: re-invite the bot "
+                  "with the 'applications.commands' scope. (Bot stays online.)")
+        except Exception as e:
+            print(f"⚠️ command sync failed for guild {getattr(g, 'id', '?')}: {e!r}")
     if not scheduler.is_running():
         scheduler.start()
     print(msg.ready_log(client.user))
