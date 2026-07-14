@@ -129,16 +129,23 @@ cookie は起動時に `PE_COOKIE` 環境変数から再シードされる。恒
 | コマンド | 用途 |
 |---|---|
 | `/register <pe_username> <friend_key>` | 参加登録（一度だけ） |
-| `/create_contest <name> <start> <duration_minutes> <contest_type> <num_problems>` | コンテスト作成（運営のみ）。`start` は `YYYY-MM-DD HH:MM` |
+| `/create_contest <start> <contest_type>` | コンテスト作成（運営のみ）。入力は2つだけ |
 | `/submit` | ACした問題を選んで提出（本人 progress を再取得して検証） |
 | `/leaderboard` | 現在の順位表 |
 
-### contest_type（難易度分布プリセット）
-- `sprint` — easy寄り（易しめ短時間向け）
-- `balanced` — easy/medium/hard を均等寄り
-- `marathon` — hard寄り（難問中心）
+### `/create_contest` の入力
+- **`start`**（JST・過去不可）:
+  - `21:00` → 今日21:00
+  - `07-15 21:00` → 今年のその日時 / `2026-07-15 21:00` → 明示
+- **`contest_type`**（難易度・問題数・制限時間をすべて内包。名前は自動生成）:
 
-`contest.py` の `CONTEST_TYPES` / `BUCKETS` を編集すれば分布は自由に調整可能。
+  | tier | 難易度% | 問題数 | 制限時間 |
+  |---|---|---|---|
+  | `beginner` 初心者 | 1–10% | 4 | 90分 |
+  | `intermediate` 中級者 | 10–35% | 4 | 120分 |
+  | `advanced` 上級者 | 30–75% | 3 | 180分 |
+
+  難易度は PE の難易度レーティング%（問題番号ではない）。`contest.py` の `CONTEST_TYPES` で調整可。
 
 ## 既知の詰め（実装後に確認したい点）
 - **friend ページの HTML クラス名**: 手元サンプルは自分のページ（`own_problem_solved`）。

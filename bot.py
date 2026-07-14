@@ -52,8 +52,31 @@ def is_organizer(interaction: discord.Interaction) -> bool:
 
 
 def parse_start(text: str) -> int:
-    """'YYYY-MM-DD HH:MM' in configured TZ -> unix epoch."""
-    dt = datetime.strptime(text.strip(), "%Y-%m-%d %H:%M").replace(tzinfo=config.TIMEZONE)
+    """Parse a start time in the configured TZ; reject past times.
+
+    Accepts: 'HH:MM' (today), 'MM-DD HH:MM' / 'MM/DD HH:MM' (this year),
+    'YYYY-MM-DD HH:MM'. Raises ValueError('format') / ValueError('past')."""
+    text = text.strip()
+    now = datetime.now(config.TIMEZONE)
+    dt = None
+    for fmt, kind in (("%H:%M", "time"), ("%m-%d %H:%M", "md"),
+                      ("%m/%d %H:%M", "md"), ("%Y-%m-%d %H:%M", "full")):
+        try:
+            p = datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+        if kind == "time":
+            dt = now.replace(hour=p.hour, minute=p.minute, second=0, microsecond=0)
+        elif kind == "md":
+            dt = now.replace(month=p.month, day=p.day, hour=p.hour, minute=p.minute,
+                             second=0, microsecond=0)
+        else:
+            dt = p.replace(tzinfo=config.TIMEZONE)
+        break
+    if dt is None:
+        raise ValueError("format")
+    if dt < now:
+        raise ValueError("past")
     return int(dt.timestamp())
 
 
@@ -157,30 +180,37 @@ async def register(interaction: discord.Interaction, pe_username: str, friend_ke
     await interaction.followup.send(msg.register_ok(uname, note, warn), ephemeral=True)
 
 
+def _contest_type_choices():
+    out = []
+    for k, v in contest_mod.CONTEST_TYPES.items():
+        out.append(app_commands.Choice(
+            name=f"{v['label']}（難易度{v['min']}-{v['max']}% / {v['num']}問 / {v['duration']}分）",
+            value=k))
+    return out
+
+
 @tree.command(name="create_contest", description="コンテストを作成するにゃ（運営のみ）")
 @app_commands.describe(
-    name="コンテスト名",
-    start="開始時刻 'YYYY-MM-DD HH:MM'（" + str(config.TIMEZONE) + "）",
-    duration_minutes="開催時間（分）",
-    contest_type="難易度分布のタイプ",
-    num_problems="問題数",
+    start="開始時刻: '21:00'(今日) / '07-15 21:00' / '2026-07-15 21:00'（"
+          + str(config.TIMEZONE) + "・過去は不可）",
+    contest_type="難易度タイプ（問題数・制限時間もこれで決まるにゃ）",
 )
-@app_commands.choices(contest_type=[
-    app_commands.Choice(name=k, value=k) for k in contest_mod.CONTEST_TYPES
-])
-async def create_contest(interaction: discord.Interaction, name: str, start: str,
-                         duration_minutes: int, contest_type: app_commands.Choice[str],
-                         num_problems: int):
+@app_commands.choices(contest_type=_contest_type_choices())
+async def create_contest(interaction: discord.Interaction, start: str,
+                         contest_type: app_commands.Choice[str]):
     if not is_organizer(interaction):
         await interaction.response.send_message(msg.NOT_ORGANIZER, ephemeral=True)
         return
     await interaction.response.defer(ephemeral=True)
     try:
         start_epoch = parse_start(start)
-    except ValueError:
-        await interaction.followup.send(msg.BAD_TIME, ephemeral=True)
+    except ValueError as e:
+        which = str(e)
+        await interaction.followup.send(
+            msg.PAST_TIME if which == "past" else msg.BAD_TIME, ephemeral=True)
         return
 
+    spec = contest_mod.CONTEST_TYPES[contest_type.value]
     participants = db.all_participants()
     if not participants:
         await interaction.followup.send(msg.NO_PARTICIPANTS, ephemeral=True)
@@ -201,18 +231,20 @@ async def create_contest(interaction: discord.Interaction, name: str, start: str
         return
 
     try:
-        problems = contest_mod.select_problems(
-            catalog, excluded, contest_type.value, num_problems)
+        problems = contest_mod.select_problems(catalog, excluded, contest_type.value)
     except ValueError as e:
         await interaction.followup.send(msg.select_fail(e), ephemeral=True)
         return
 
-    cid = db.create_contest(name, start_epoch, duration_minutes, contest_type.value,
-                            num_problems, interaction.guild_id,
+    # Auto-generate the name from tier + start time (JST).
+    when = datetime.fromtimestamp(start_epoch, config.TIMEZONE).strftime("%m-%d %H:%M")
+    name = f"{spec['label']}コンテスト {when}"
+    cid = db.create_contest(name, start_epoch, spec["duration"], contest_type.value,
+                            spec["num"], interaction.guild_id,
                             interaction.channel_id, interaction.user.id)
     db.add_contest_problems(cid, problems)
     await interaction.followup.send(
-        msg.create_ok(cid, name, start_epoch, duration_minutes,
+        msg.create_ok(cid, name, start_epoch, spec["duration"],
                       contest_type.value, len(problems)),
         ephemeral=True,
     )

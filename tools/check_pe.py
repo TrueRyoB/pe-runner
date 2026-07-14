@@ -54,18 +54,17 @@ def main():
     solved = sum(1 for c in cat.values() if c.solved)
     print(f"✅ 認証OK・全 {len(cat)} 問を取得（最大番号 {max(cat)}）")
     print(f"   bot自身: solved={solved} / 未solved={len(cat) - solved}")
-    dist = collections.Counter(contest.bucket_of(c.difficulty) or "other"
-                               for c in cat.values())
-    print("   難易度分布:", dict(sorted(dist.items())))
+    bands = collections.Counter((c.difficulty // 10) * 10 for c in cat.values())
+    print("   難易度分布:", {f"{k}-{k + 9}%": bands[k] for k in sorted(bands)})
     excluded = {pid for pid, c in cat.items() if c.solved}
-    try:
-        picks = contest.select_problems(cat, excluded, "balanced", 6,
-                                        rng=random.Random(42))
-        print("✅ 選抜ドライラン(balanced, 6問):")
-        for p in picks:
-            print(f"     P{p['id']} — {p['difficulty']}pt — {p['title']}")
-    except ValueError as e:
-        print("   選抜エラー:", e)
+    for tier in contest.CONTEST_TYPES:
+        try:
+            picks = contest.select_problems(cat, excluded, tier, rng=random.Random(42))
+            spec = contest.CONTEST_TYPES[tier]
+            print(f"✅ {spec['label']}({tier}): {len(picks)}問 "
+                  f"[{', '.join('P%d/%d%%' % (p['id'], p['difficulty']) for p in picks)}]")
+        except ValueError as e:
+            print(f"   {tier} 選抜エラー:", e)
     print("\n😺 準備OKにゃ！")
 
 
