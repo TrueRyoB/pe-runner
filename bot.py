@@ -278,15 +278,15 @@ async def create_contest(interaction: discord.Interaction, start: str,
     # Public recruiting announcement with Join/Leave buttons (no problems yet —
     # they're drawn at draw_epoch from whoever actually joined).
     sent = await interaction.channel.send(
-        msg.contest_recruiting(name, start_epoch, []),
+        msg.contest_recruiting(name, []),
         view=JoinView())
     db.set_join_message(cid, sent.id)
     await interaction.followup.send(msg.create_ack(), ephemeral=True)
 
 
 class JoinView(discord.ui.View):
-    """Persistent Join/Leave buttons. The contest is resolved from the message
-    the buttons live on (contest.join_message_id)."""
+    """Persistent single toggle button: join if not joined, leave if joined.
+    The contest is resolved from the message the button lives on (join_message_id)."""
     def __init__(self):
         super().__init__(timeout=None)
 
@@ -306,33 +306,24 @@ class JoinView(discord.ui.View):
         ids = [p["discord_id"] for p in db.joined_participants(c["id"])]
         try:
             await interaction.message.edit(
-                content=msg.contest_recruiting(c["name"], c["start_epoch"], ids),
+                content=msg.contest_recruiting(c["name"], ids),
                 view=self, allowed_mentions=discord.AllowedMentions.none())
         except Exception:
             pass
 
-    @discord.ui.button(label="参加する 🙋", style=discord.ButtonStyle.success,
-                       custom_id="contest_join")
-    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="参加する / 取り消す 🙋", style=discord.ButtonStyle.primary,
+                       custom_id="contest_toggle")
+    async def toggle(self, interaction: discord.Interaction, button: discord.ui.Button):
         c = await self._resolve(interaction)
         if not c:
             return
-        db.join_contest(c["id"], interaction.user.id)
-        await interaction.response.send_message(
-            msg.joined(interaction.user.display_name, db.joined_count(c["id"])),
-            ephemeral=True)
-        await self._refresh(interaction, c)
-
-    @discord.ui.button(label="参加しない 🚪", style=discord.ButtonStyle.secondary,
-                       custom_id="contest_leave")
-    async def leave(self, interaction: discord.Interaction, button: discord.ui.Button):
-        c = await self._resolve(interaction)
-        if not c:
-            return
-        db.leave_contest(c["id"], interaction.user.id)
-        await interaction.response.send_message(
-            msg.left(interaction.user.display_name, db.joined_count(c["id"])),
-            ephemeral=True)
+        if db.is_joined(c["id"], interaction.user.id):
+            db.leave_contest(c["id"], interaction.user.id)
+            ack = msg.left(interaction.user.display_name, db.joined_count(c["id"]))
+        else:
+            db.join_contest(c["id"], interaction.user.id)
+            ack = msg.joined(interaction.user.display_name, db.joined_count(c["id"]))
+        await interaction.response.send_message(ack, ephemeral=True)
         await self._refresh(interaction, c)
 
 

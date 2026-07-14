@@ -72,9 +72,11 @@ def init():
 
 
 def _fix_snowflake_tables():
-    """Older tables stored snowflake IDs as INTEGER (precision-lossy on libSQL).
-    Drop and recreate ONLY tables that are still INTEGER-typed AND empty — so this
-    never destroys data. Fresh installs are unaffected."""
+    """Older tables stored snowflake IDs as INTEGER, which libSQL rounds (precision
+    loss > 2^53) — so any INTEGER-typed snowflake table holds CORRUPTED, unqueryable
+    IDs. Recreate those as TEXT. This drops the corrupted rows (unrecoverable), but
+    only touches tables whose id column is still INTEGER; TEXT tables (correct data)
+    are never touched. Fresh installs are unaffected."""
     for t in _SNOWFLAKE_TABLES:
         try:
             info = _rows(f"PRAGMA table_info({t})")
@@ -85,13 +87,14 @@ def _fix_snowflake_tables():
         int_snow = any(r["name"] in _SNOWFLAKE_COLS and
                        (r["type"] or "").upper() == "INTEGER" for r in info)
         if not int_snow:
-            continue
+            continue  # already TEXT — leave its (correct) data alone
         try:
             n = _row(f"SELECT COUNT(*) AS n FROM {t}")["n"]
         except Exception:
-            continue
-        if n == 0:
-            _write(f"DROP TABLE {t}")
+            n = "?"
+        _write(f"DROP TABLE {t}")
+        print(f"migrated '{t}': INTEGER snowflake table dropped ({n} corrupted rows), "
+              "will be recreated as TEXT — affected users must re-register.")
 
 
 def _migrate():
