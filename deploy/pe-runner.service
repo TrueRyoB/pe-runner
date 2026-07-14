@@ -10,8 +10,9 @@ WorkingDirectory=/home/ubuntu/pe-runner
 ExecStart=/home/ubuntu/pe-runner/.venv/bin/python bot.py
 Restart=on-failure
 RestartSec=10
-# Reload cookie/token changes without editing the unit:
-EnvironmentFile=/home/ubuntu/pe-runner/.env
+# NOTE: .env is loaded by python-dotenv inside the app (config.py), NOT via
+# systemd's EnvironmentFile — systemd would mis-parse cookie values containing
+# ';' and '='. Just keep .env in WorkingDirectory.
 
 [Install]
 WantedBy=multi-user.target

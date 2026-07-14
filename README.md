@@ -55,26 +55,52 @@ cp .env.example .env   # 編集する
 python bot.py
 ```
 
-## Oracle Cloud Always Free での常時稼働
+## Oracle Cloud Always Free での常時稼働（PC非依存）
 
-Ampere A1 (ARM/aarch64) の Always Free VM 上で systemd 常駐させる。
+自分のPCに依存せず 24/7 動かすには、Always Free の Ampere A1 (ARM/aarch64) VM 上で
+systemd 常駐させる。手順は「① VM作成 → ② setup.sh → ③ secrets転送 → ④ PE認証検証
+→ ⑤ 常駐化」の5ステップ。
 
+### ① VM プロビジョニング（Oracle Cloud コンソール）
+- Compute → Instances → Create。Shape=**Ampere A1 (VM.Standard.A1.Flex)**、Image=**Ubuntu 22.04+**。
+- SSH 公開鍵を登録。**ingress は不要**（Discord/PE への outbound のみ。追加のセキュリティリスト解放は不要）。
+- 作成後 `ssh ubuntu@<VM-IP>` で入れることを確認。
+
+### ② サーバ環境構築（VM上で1回）
 ```bash
-# VM 上（Ubuntu想定）
-sudo apt update && sudo apt install -y python3-venv git
-git clone <your-repo> pe-runner && cd pe-runner
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env && nano .env        # token / cookie を設定
-
-sudo cp deploy/pe-runner.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now pe-runner
-sudo systemctl status pe-runner
-journalctl -u pe-runner -f               # ログ
+curl -fsSL https://raw.githubusercontent.com/TrueRyoB/pe-runner/main/deploy/setup.sh | bash
+# git/venv/依存インストール + systemd unit 設置まで自動。再実行で最新コードに更新も可。
 ```
 
+### ③ secrets（.env）を VM へ転送（自分のPCから）
+`.env` は Discord token と PE cookie を含むので **コミットせず scp で運ぶ**：
+```bash
+scp .env ubuntu@<VM-IP>:~/pe-runner/.env
+```
+
+### ④ PE認証をサーバ側で検証（重要）
+cookie が **VM の IP からも有効か**を必ず確認する（PEセッションがIP等に紐づく可能性の潰し込み）：
+```bash
+cd ~/pe-runner && .venv/bin/python tools/check_pe.py     # ✅ 認証OK が出ればOK
+```
+- ✅ が出れば問題なし。
+- ❌（失効）なら、VM側で PE にログインし直した cookie を使うか、cookie を取り直して
+  `.env` を更新（このアプリはローテーションを自前で永続化するので初回シードが通ればOK）。
+
+### ⑤ 常駐化 & 疎通確認
+```bash
+sudo systemctl enable --now pe-runner    # 起動 + 自動起動
+sudo systemctl status pe-runner
+journalctl -u pe-runner -f               # 「…ログインしたにゃ」を確認
+```
+Discord サーバに `/register` などが出れば完了。**この時点で自分のPCは落としてよい。**
+
+⚠️ token の二重接続に注意：ローカルでテスト起動している bot は、VMで起動する前に必ず停止する
+（同一 token で2プロセスが繋ぐと不安定になる）。
+
 - 依存はすべて aarch64 wheel あり（discord.py / requests / bs4 / lxml）。
-- SQLite はファイル 1 つ（`pe_runner.db`）。バックアップはこのファイルをコピーするだけ。
+- 状態ファイルは repo 直下：SQLite `pe_runner.db` と cookie ジャー `pe_cookies.pkl`。
+  バックアップはこの2つをコピーするだけ（どちらも gitignore 済み）。
 
 ## コマンド
 

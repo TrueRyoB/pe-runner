@@ -31,7 +31,7 @@ def register_limit(limit: int) -> str:
 REGISTER_NOTE_VERIFIED = "✅ ちゃんとキミのprogressが読めたにゃ〜。準備OKにゃ！"
 REGISTER_NOTE_PENDING = (
     "⏳ まだキミのprogressが読めないにゃ。\n"
-    "運営さんがボクのPEアカウントにキミのfriend keyを追加してくれたら有効になるにゃ！"
+    "運営さんがぉぃㇻのPEアカウントにキミのfriend keyを追加してくれたら有効になるにゃ！"
 )
 REGISTER_NOTE_UNKNOWN = (
     "⏳ うまく確認できなかったにゃ…ユーザー名とfriend登録をもう一度見てみてにゃ。"
@@ -88,7 +88,7 @@ SUBMIT_PROMPT = "😸 どの問題をACしたのニャ？選んでにゃ:"
 
 
 def cannot_read_progress() -> str:
-    return ("🙀 キミの解答状況が読めないにゃ… ボク(bot)とfriend登録できてるか"
+    return ("🙀 キミの解答状況が読めないにゃ… ぉぃㇻ(bot)とfriend登録できてるか"
             "運営に確認してほしいにゃ。")
 
 
@@ -133,4 +133,4 @@ def contest_end(name: str) -> str:
 
 
 def ready_log(user) -> str:
-    return f"😺 {user} でログインしたにゃ！ボク、オイラーにゃん、準備OKにゃ〜"
+    return f"😺 {user} でログインしたにゃ！ぉぃㇻ、オイラーにゃん、準備OKにゃ〜"
