@@ -30,8 +30,9 @@ def register_limit(limit: int) -> str:
 
 REGISTER_NOTE_VERIFIED = "✅ ちゃんとキミのprogressが読めたにゃ〜。準備OKにゃ！"
 REGISTER_NOTE_PENDING = (
-    "⏳ まだキミのprogressが読めないにゃ。\n"
-    "運営さんがぉぃㇻのPEアカウントにキミのfriend keyを追加してくれたら有効になるにゃ！"
+    "⏳ まだキミのprogressが読めないにゃ。次のどちらかを確認してほしいにゃ：\n"
+    "・PEユーザー名のスペルは合ってる？\n"
+    "・ぉぃㇻ(bot)のPEアカウントにキミのfriend keyが追加されてる？（運営が追加すると有効）"
 )
 REGISTER_NOTE_UNKNOWN = (
     "⏳ うまく確認できなかったにゃ…ユーザー名とfriend登録をもう一度見てみてにゃ。"

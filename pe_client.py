@@ -184,11 +184,19 @@ def fetch_progress_grid(username: str) -> dict[int, ProblemCell]:
             raise SessionExpired(
                 "PEセッションが無効/失効。ブラウザで取り直して .env を更新してください。"
             )
-        # /about or an empty grid => can't view THIS user (usually: not friends).
-        cells = _parse_grid(html)
-        if "/about" in resp.url or not cells:
+        # We must still be on the REQUESTED user's page. PE redirects a non-friend
+        # to /about, and a NON-EXISTENT username to the viewer's own /progress
+        # (dropping "=username"). Either way we're not looking at `username`.
+        if f"progress={username}".lower() not in resp.url.lower():
             raise ProgressUnavailable(
-                f"{username} のprogressを閲覧できません（bot と friend 登録されていない可能性）。"
+                f"{username} のprogressを閲覧できません"
+                "（ユーザー名が違う、または bot と friend 登録されていない可能性）。"
+            )
+        cells = _parse_grid(html)
+        if not cells:
+            raise ProgressUnavailable(
+                f"{username} のprogressを閲覧できません"
+                "（ユーザー名が違う、または bot と friend 登録されていない可能性）。"
             )
         _save_cookies()  # persist any rotated cookies PE just handed back
         return cells
@@ -251,20 +259,25 @@ def valid_friend_key(key: str) -> bool:
 
 
 def username_exists(username: str) -> bool:
-    """True if the PE username exists. Uses the public (no-auth) profile endpoint:
-    a valid user returns a CSV line whose first field is the username; an invalid
-    user returns an empty body."""
+    """Weak typo-guard: True unless the PE username is definitively not a member.
+
+    Uses the public profile endpoint (no auth). An INVALID username returns an
+    EMPTY body. A VALID-but-private profile returns an "Oops!" HTML page, and a
+    public one returns CSV — both mean the user exists, so we must NOT reject
+    those (the real existence+friendship check is solved_ids via the friend page).
+    """
     u = (username or "").strip()
     if not u:
         return False
-    with _LOCK:
-        resp = _session().get(PROFILE_TXT_URL.format(username=quote(u, safe="")),
-                              timeout=20)
-    body = resp.text.strip()
-    if not body or "<" in body[:50]:  # empty => not found; HTML => error page
-        return False
-    first = body.split(",", 1)[0].strip().lower()
-    return first == u.lower()
+    try:
+        with _LOCK:
+            resp = _session().get(PROFILE_TXT_URL.format(username=quote(u, safe="")),
+                                  timeout=20)
+    except Exception:
+        return True  # don't block registration on a flaky weak check
+    # Empty body => not a member. Anything else (CSV or an Oops HTML page for a
+    # private profile) => the user exists; don't block.
+    return bool(resp.text.strip())
 
 
 class SolveStatusUnavailable(RuntimeError):

@@ -122,22 +122,17 @@ async def register(interaction: discord.Interaction, pe_username: str, friend_ke
     uname = pe_username.strip()
     fkey = friend_key.strip()
 
-    # 1) friend key format check.
+    # 1) friend key format check (deterministic, cheap).
     if not pe_client.valid_friend_key(fkey):
         await interaction.followup.send(msg.REGISTER_INVALID_KEY, ephemeral=True)
         return
 
-    # 2) username existence check (public profile endpoint).
-    try:
-        exists = await asyncio.to_thread(pe_client.username_exists, uname)
-    except Exception:
-        await interaction.followup.send(msg.register_check_failed(), ephemeral=True)
-        return
-    if not exists:
-        await interaction.followup.send(msg.register_invalid_user(uname), ephemeral=True)
-        return
+    # NOTE: we do NOT gate on a profile.txt "username exists" check — it's
+    # unreliable (private profiles return empty even when authed; anti-bot 403s).
+    # The authoritative existence+friendship check is reading the friend's
+    # progress below, which also distinguishes verified vs pending.
 
-    # 3) friend-cap safeguard (only for genuinely new registrants).
+    # 2) friend-cap safeguard (only for genuinely new registrants).
     count = db.participant_count()
     if db.get_participant(interaction.user.id) is None and count >= config.FRIEND_LIMIT:
         await interaction.followup.send(msg.register_limit(config.FRIEND_LIMIT), ephemeral=True)
@@ -145,12 +140,12 @@ async def register(interaction: discord.Interaction, pe_username: str, friend_ke
 
     db.upsert_participant(interaction.user.id, uname, fkey)
 
-    # 4) can we already read their progress? (i.e. is friendship set up)
+    # 3) authoritative check: can we read their progress? (exists AND friended)
     try:
         await asyncio.to_thread(pe_client.solved_ids, uname)
         note = msg.REGISTER_NOTE_VERIFIED
     except (pe_client.ProgressUnavailable, pe_client.SolveStatusUnavailable):
-        note = msg.REGISTER_NOTE_PENDING   # friendship not set up yet
+        note = msg.REGISTER_NOTE_PENDING   # wrong username OR not friended yet
     except pe_client.SessionExpired:
         note = msg.REGISTER_NOTE_UNKNOWN   # bot's own PE session problem
     except Exception:
