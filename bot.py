@@ -89,22 +89,49 @@ async def union_solved(participants):
 
 
 def leaderboard_embed(contest_row) -> discord.Embed:
-    rows = db.leaderboard(contest_row["id"])
-    problems = db.contest_problems(contest_row["id"])
+    problems = sorted(db.contest_problems(contest_row["id"]), key=lambda p: p["problem_id"])
+    smap = db.solved_map(contest_row["id"])
+    lb = {r["discord_id"]: r for r in db.leaderboard(contest_row["id"])}
     max_pts = sum(p["difficulty"] for p in problems)
     status = contest_row["status"]
     e = discord.Embed(
         title=msg.lb_title(contest_row["name"]),
         color=0x2ecc71 if status == "running" else 0x95a5a6,
     )
-    if not rows:
+
+    # Every registered participant is a row (0-solve ones show all ·).
+    entries = []
+    for p in db.all_participants():
+        info = lb.get(p["discord_id"])
+        entries.append({
+            "name": p["pe_username"],
+            "pts": info["pts"] if info else 0,
+            "last": info["last_solve"] if info else None,
+            "solved": smap.get(p["discord_id"], set()),
+        })
+    if not entries:
         e.description = msg.LB_EMPTY
-    else:
-        lines = []
-        for i, r in enumerate(rows, 1):
-            medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
-            lines.append(f"{medal} **{r['pe_username']}** — {r['pts']} pts ({r['solved']}問)")
-        e.description = "\n".join(lines)
+        e.set_footer(text=msg.lb_footer(max_pts, len(problems), status))
+        return e
+    # Rank: points desc, then earliest last-solve (non-solvers last).
+    entries.sort(key=lambda x: (-x["pts"], x["last"] if x["last"] is not None else float("inf")))
+
+    # Monospace table: rank | name | pts | one ✓/· column per problem.
+    name_w = min(max(len(e2["name"]) for e2 in entries), 14)
+    headers = [f"P{p['problem_id']}" for p in problems]
+    col_w = [max(len(h), 3) for h in headers]
+
+    def line(rank, name, pts, marks):
+        cells = " ".join(marks[i].center(col_w[i]) for i in range(len(marks)))
+        return f"{rank:>2} {name[:name_w].ljust(name_w)} {str(pts):>4} {cells}"
+
+    head = (f"{'#':>2} {'name'.ljust(name_w)} {'pts':>4} "
+            + " ".join(headers[i].center(col_w[i]) for i in range(len(headers))))
+    body = []
+    for i, ent in enumerate(entries, 1):
+        marks = ["✓" if p["problem_id"] in ent["solved"] else "·" for p in problems]
+        body.append(line(i, ent["name"], ent["pts"], marks))
+    e.description = "```\n" + head + "\n" + "\n".join(body) + "\n```"
     e.set_footer(text=msg.lb_footer(max_pts, len(problems), status))
     return e
 
@@ -169,19 +196,18 @@ async def _finish_register(interaction: discord.Interaction, ok, priv, pub):
         await interaction.followup.send(priv, ephemeral=True)
 
 
-@tree.command(name="register", description="PEユーザ名とfriend keyを登録するにゃ")
-@app_commands.describe(pe_username="Project Eulerのユーザ名", friend_key="あなたのfriend key")
-async def register(interaction: discord.Interaction, pe_username: str, friend_key: str):
-    await interaction.response.defer(ephemeral=True)
-    ok, priv, pub = await _do_register(interaction.user.id, pe_username, friend_key)
-    await _finish_register(interaction, ok, priv, pub)
-
-
-class RegisterModal(discord.ui.Modal, title="参加登録にゃ 🐾"):
-    pe_username = discord.ui.TextInput(
-        label="PEユーザ名", placeholder="Project Eulerのユーザ名", required=True, max_length=64)
-    friend_key = discord.ui.TextInput(
-        label="friend key", placeholder="例: 123456_xxxxxxxxxxxx", required=True, max_length=128)
+class RegisterModal(discord.ui.Modal):
+    """Registration form. Prefills the PE username when updating an existing entry."""
+    def __init__(self, existing_username: str | None = None):
+        super().__init__(title="参加登録にゃ 🐾")
+        self.pe_username = discord.ui.TextInput(
+            label="PEユーザ名", placeholder="Project Eulerのユーザ名",
+            default=existing_username or "", required=True, max_length=64)
+        self.friend_key = discord.ui.TextInput(
+            label="friend key", placeholder="例: 123456_xxxxxxxxxxxx",
+            required=True, max_length=128)
+        self.add_item(self.pe_username)
+        self.add_item(self.friend_key)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -191,18 +217,23 @@ class RegisterModal(discord.ui.Modal, title="参加登録にゃ 🐾"):
 
 
 class RegisterPanel(discord.ui.View):
-    """Persistent view: a button that opens the registration modal."""
+    """Persistent view: a button that opens the registration modal, guiding
+    unregistered users to register and letting registered users update."""
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.button(label="参加登録するにゃ 🐾", style=discord.ButtonStyle.primary,
                        custom_id="pe_register_btn")
     async def register_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(RegisterModal())
+        part = db.get_participant(interaction.user.id)
+        # Not registered -> guide into the (blank) registration form.
+        # Already registered -> same form, prefilled, so it doubles as an update.
+        existing = part["pe_username"] if part else None
+        await interaction.response.send_modal(RegisterModal(existing_username=existing))
 
 
-@tree.command(name="register_panel", description="参加登録ボタンを設置するにゃ")
-async def register_panel(interaction: discord.Interaction):
+@tree.command(name="register", description="参加登録ボタンを設置するにゃ（ボタンから登録）")
+async def register(interaction: discord.Interaction):
     await interaction.channel.send(msg.REGISTER_PANEL_TEXT, view=RegisterPanel())
     await interaction.response.send_message("参加登録ボタンを設置したにゃ！", ephemeral=True)
 

@@ -95,7 +95,8 @@ def create_ok(cid: int, name: str, start_epoch: int, duration: int,
 
 # --- /submit ---
 
-NOT_REGISTERED = "🐾 まずは `/register` してほしいにゃ！"
+NOT_REGISTERED = ("🐾 まだ参加登録してないにゃ！`/register` で出てくる"
+                  "「参加登録するにゃ」ボタンから登録してにゃ！")
 NO_RUNNING = "😴 いまは開催中のコンテストがないにゃ〜。"
 NOTHING_TO_SUBMIT = "😺 提出できる問題がもうないにゃ！全部AC済みかもにゃ、すごいにゃ〜！"
 SELECT_PLACEHOLDER = "ACした問題を選ぶにゃ"

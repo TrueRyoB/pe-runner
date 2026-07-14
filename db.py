@@ -136,6 +136,17 @@ def has_solve(contest_id, discord_id, problem_id) -> bool:
     ).fetchone() is not None
 
 
+def solved_map(contest_id: int) -> dict[int, set]:
+    """{discord_id: set(problem_id)} of verified solves in this contest."""
+    rows = conn().execute(
+        "SELECT discord_id, problem_id FROM solves WHERE contest_id=?", (contest_id,)
+    ).fetchall()
+    m: dict[int, set] = {}
+    for r in rows:
+        m.setdefault(r["discord_id"], set()).add(r["problem_id"])
+    return m
+
+
 def leaderboard(contest_id: int) -> list[dict]:
     """Ranked: total points desc, then earliest last-solve time (tiebreak)."""
     rows = conn().execute(
