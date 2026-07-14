@@ -167,7 +167,9 @@ async def register(interaction: discord.Interaction, pe_username: str, friend_ke
     warn = ""
     if count + 1 >= config.FRIEND_LIMIT - 5:
         warn = msg.register_warn(count + 1, config.FRIEND_LIMIT)
-    await interaction.followup.send(msg.register_ok(uname, note, warn), ephemeral=True)
+    # Registration success is PUBLIC (everyone sees who joined); errors above stay
+    # ephemeral. A non-ephemeral followup after an ephemeral defer posts publicly.
+    await interaction.followup.send(msg.register_ok(uname, note, warn), ephemeral=False)
 
 
 def _contest_type_choices():
