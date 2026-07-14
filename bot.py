@@ -82,10 +82,19 @@ async def union_solved(participants):
     for p in participants:
         try:
             result |= await asyncio.to_thread(pe_client.solved_ids, p["pe_username"])
+            continue
         except pe_client.SessionExpired:
             raise
         except Exception:
-            # not friended / unreadable — surface it rather than silently skipping.
+            pass
+        # Link may have broken (they un-friended / went private). Try re-adding the
+        # friend once and retry; only if that still fails, skip them (don't abort).
+        try:
+            await asyncio.to_thread(pe_client.add_friend, p["friend_key"])
+            result |= await asyncio.to_thread(pe_client.solved_ids, p["pe_username"])
+        except pe_client.SessionExpired:
+            raise
+        except Exception:
             unreadable.append(p["pe_username"])
     return result, unreadable
 
@@ -268,13 +277,9 @@ async def create_contest(interaction: discord.Interaction, start: str,
         await interaction.followup.send(msg.session_expired(e), ephemeral=True)
         return
 
-    # If some participants can't be read, their solved problems can't be excluded —
-    # abort rather than risk handing out a problem someone already solved.
-    if unreadable:
-        await interaction.followup.send(msg.unreadable_participants(unreadable),
-                                        ephemeral=True)
-        return
-
+    # Unreadable participants (broke their friend link / deleted account) are
+    # SKIPPED — their solves can't be excluded, but they no longer block everyone
+    # else's contest. The organizer is warned (ephemeral) with the names.
     try:
         problems = contest_mod.select_problems(catalog, excluded, contest_type.value)
     except ValueError as e:
@@ -292,7 +297,10 @@ async def create_contest(interaction: discord.Interaction, start: str,
     await interaction.channel.send(
         msg.create_ok(cid, name, start_epoch, spec["duration"],
                       contest_type.value, len(problems)))
-    await interaction.followup.send(msg.create_ack(), ephemeral=True)
+    ack = msg.create_ack()
+    if unreadable:
+        ack += "\n" + msg.unreadable_note(unreadable)
+    await interaction.followup.send(ack, ephemeral=True)
 
 
 class SubmitView(discord.ui.View):
