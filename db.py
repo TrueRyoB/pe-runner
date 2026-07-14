@@ -58,7 +58,7 @@ def _is_unique_violation(exc: Exception) -> bool:
 
 
 _SNOWFLAKE_TABLES = ("participants", "contests", "contest_participants",
-                     "solves", "votes", "performances")
+                     "contest_presolved", "solves", "votes", "performances")
 _SNOWFLAKE_COLS = {"discord_id", "guild_id", "channel_id",
                    "leaderboard_message_id", "join_message_id", "created_by"}
 
@@ -187,6 +187,29 @@ def joined_participants(contest_id: int) -> list[dict]:
 def joined_count(contest_id: int) -> int:
     return _row("SELECT COUNT(*) AS n FROM contest_participants WHERE contest_id=?",
                 (contest_id,))["n"]
+
+
+# --- pre-solved (problems a late joiner had already AC'd before joining) ---
+
+def add_presolved(contest_id: int, discord_id: int, problem_ids: list[int]):
+    for pid in problem_ids:
+        _cursor("INSERT OR IGNORE INTO contest_presolved (contest_id, discord_id, problem_id) "
+                "VALUES (?,?,?)", (contest_id, str(discord_id), pid))
+    conn().commit()
+
+
+def is_presolved(contest_id: int, discord_id: int, problem_id: int) -> bool:
+    return _row("SELECT 1 AS x FROM contest_presolved "
+                "WHERE contest_id=? AND discord_id=? AND problem_id=?",
+                (contest_id, str(discord_id), problem_id)) is not None
+
+
+def presolved_map(contest_id: int) -> dict[str, set]:
+    m: dict[str, set] = {}
+    for r in _rows("SELECT discord_id, problem_id FROM contest_presolved WHERE contest_id=?",
+                   (contest_id,)):
+        m.setdefault(r["discord_id"], set()).add(r["problem_id"])
+    return m
 
 
 def add_contest_problems(contest_id: int, problems: list[dict]):

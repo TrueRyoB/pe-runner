@@ -122,6 +122,19 @@ def left(display_name: str, count: int) -> str:
     return f"🚪 {display_name}さん、参加を取り消したにゃ。（現在 {count}人）"
 
 
+CANNOT_LEAVE = "🚪 受付は終了したので**退出はできない**にゃ（参加は続けられるにゃ）。"
+
+
+def late_join_presolved(pids: list[int]) -> str:
+    ps = ", ".join(f"P{p}" for p in pids)
+    return (f"\n⚠️ 参加前に既にAC済みの問題があるにゃ（{ps}）。それらは順位表で **x**・"
+            f"**0点**扱いになるにゃ。")
+
+
+def presolved_reject(pid: int) -> str:
+    return f"🙅 Problem {pid} は参加前に既にAC済みだから0点にゃ（提出できないにゃ）。"
+
+
 # --- /submit ---
 
 NOT_REGISTERED = "🐾 まだ参加登録してないにゃ！`/register <PEユーザ名> <friend key>` で登録してにゃ！"

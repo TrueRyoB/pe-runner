@@ -31,6 +31,15 @@ CREATE TABLE IF NOT EXISTS contest_participants (
     PRIMARY KEY (contest_id, discord_id)
 );
 
+-- Problems a (late) joiner had ALREADY solved before joining: shown as 'x' and
+-- worth 0 points (they can't score a problem solved before the contest).
+CREATE TABLE IF NOT EXISTS contest_presolved (
+    contest_id INTEGER NOT NULL,
+    discord_id TEXT NOT NULL,
+    problem_id INTEGER NOT NULL,
+    PRIMARY KEY (contest_id, discord_id, problem_id)
+);
+
 CREATE TABLE IF NOT EXISTS contest_problems (
     contest_id   INTEGER NOT NULL,
     problem_id   INTEGER NOT NULL,

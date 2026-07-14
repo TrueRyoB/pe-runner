@@ -103,6 +103,7 @@ async def union_solved(participants):
 def leaderboard_embed(contest_row) -> discord.Embed:
     problems = sorted(db.contest_problems(contest_row["id"]), key=lambda p: p["problem_id"])
     smap = db.solved_map(contest_row["id"])
+    pmap = db.presolved_map(contest_row["id"])
     lb = {r["discord_id"]: r for r in db.leaderboard(contest_row["id"])}
     max_pts = sum(p["difficulty"] for p in problems)
     status = contest_row["status"]
@@ -120,6 +121,7 @@ def leaderboard_embed(contest_row) -> discord.Embed:
             "pts": info["pts"] if info else 0,
             "last": info["last_solve"] if info else None,
             "solved": smap.get(p["discord_id"], set()),
+            "presolved": pmap.get(p["discord_id"], set()),
         })
     if not entries:
         e.description = msg.LB_EMPTY
@@ -140,8 +142,13 @@ def leaderboard_embed(contest_row) -> discord.Embed:
     head = (f"{'#':>2} {'name'.ljust(name_w)} {'pts':>4} "
             + " ".join(headers[i].center(col_w[i]) for i in range(len(headers))))
     body = []
+    def mark(pid, ent):
+        if pid in ent["presolved"]:
+            return "x"          # already solved before joining -> 0 pts
+        return "✓" if pid in ent["solved"] else "·"
+
     for i, ent in enumerate(entries, 1):
-        marks = ["✓" if p["problem_id"] in ent["solved"] else "·" for p in problems]
+        marks = [mark(p["problem_id"], ent) for p in problems]
         body.append(line(i, ent["name"], ent["pts"], marks))
     e.description = "```\n" + head + "\n" + "\n".join(body) + "\n```"
     e.set_footer(text=msg.lb_footer(max_pts, len(problems), status))
@@ -285,24 +292,14 @@ async def create_contest(interaction: discord.Interaction, start: str,
 
 
 class JoinView(discord.ui.View):
-    """Persistent single toggle button: join if not joined, leave if joined.
-    The contest is resolved from the message the button lives on (join_message_id)."""
+    """Persistent toggle button. Join is allowed while the contest isn't finished
+    (including AFTER the draw = late join). Leaving is only allowed before the draw
+    (status 'recruiting'). A late joiner's already-solved drawn problems are recorded
+    as pre-solved (shown 'x', worth 0)."""
     def __init__(self):
         super().__init__(timeout=None)
 
-    async def _resolve(self, interaction):
-        c = db.contest_by_join_message(interaction.message.id)
-        if c is None or c["status"] != "recruiting":
-            await interaction.response.send_message(msg.JOIN_CLOSED, ephemeral=True)
-            return None
-        if db.get_participant(interaction.user.id) is None:
-            await interaction.response.send_message(msg.NOT_REGISTERED, ephemeral=True)
-            return None
-        return c
-
     async def _refresh(self, interaction, c):
-        """Re-render the recruiting message with the current joined list (mentions
-        shown but not pinged)."""
         ids = [p["discord_id"] for p in db.joined_participants(c["id"])]
         try:
             await interaction.message.edit(
@@ -314,17 +311,48 @@ class JoinView(discord.ui.View):
     @discord.ui.button(label="参加する / 取り消す 🙋", style=discord.ButtonStyle.primary,
                        custom_id="contest_toggle")
     async def toggle(self, interaction: discord.Interaction, button: discord.ui.Button):
-        c = await self._resolve(interaction)
-        if not c:
+        await interaction.response.defer(ephemeral=True)
+        c = db.contest_by_join_message(interaction.message.id)
+        if c is None or c["status"] == "finished":
+            await interaction.followup.send(msg.JOIN_CLOSED, ephemeral=True)
             return
-        if db.is_joined(c["id"], interaction.user.id):
-            db.leave_contest(c["id"], interaction.user.id)
+        if db.get_participant(interaction.user.id) is None:
+            await interaction.followup.send(msg.NOT_REGISTERED, ephemeral=True)
+            return
+        uid = interaction.user.id
+        if db.is_joined(c["id"], uid):
+            if c["status"] != "recruiting":   # after the draw: no leaving
+                await interaction.followup.send(msg.CANNOT_LEAVE, ephemeral=True)
+                return
+            db.leave_contest(c["id"], uid)
             ack = msg.left(interaction.user.display_name, db.joined_count(c["id"]))
         else:
-            db.join_contest(c["id"], interaction.user.id)
-            ack = msg.joined(interaction.user.display_name, db.joined_count(c["id"]))
-        await interaction.response.send_message(ack, ephemeral=True)
+            db.join_contest(c["id"], uid)
+            note = ""
+            if c["status"] != "recruiting":   # late join: mark already-solved problems
+                pre = await _record_presolved(c["id"], uid)
+                if pre:
+                    note = msg.late_join_presolved(pre)
+            ack = msg.joined(interaction.user.display_name, db.joined_count(c["id"])) + note
+        await interaction.followup.send(ack, ephemeral=True)
         await self._refresh(interaction, c)
+
+
+async def _record_presolved(contest_id: int, discord_id: int) -> list[int]:
+    """For a late joiner, record which drawn problems they had already solved.
+    Returns the pre-solved problem ids (best-effort; empty on PE read failure)."""
+    part = db.get_participant(discord_id)
+    if not part:
+        return []
+    try:
+        solved = await asyncio.to_thread(pe_client.solved_ids, part["pe_username"])
+    except Exception:
+        return []
+    drawn = [p["problem_id"] for p in db.contest_problems(contest_id)]
+    pre = [pid for pid in drawn if pid in solved]
+    if pre:
+        db.add_presolved(contest_id, discord_id, pre)
+    return pre
 
 
 class SubmitView(discord.ui.View):
@@ -337,6 +365,8 @@ class SubmitView(discord.ui.View):
         for p in db.contest_problems(contest_row["id"]):
             if db.has_solve(contest_row["id"], discord_id, p["problem_id"]):
                 continue
+            if db.is_presolved(contest_row["id"], discord_id, p["problem_id"]):
+                continue  # already solved before joining -> 0 pts, can't submit
             options.append(discord.SelectOption(
                 label=f"Problem {p['problem_id']} — {p['difficulty']}pt",
                 description=(p["title"] or "")[:100],
@@ -351,6 +381,9 @@ class SubmitView(discord.ui.View):
     async def on_select(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         pid = int(self.select.values[0])
+        if db.is_presolved(self.contest_row["id"], self.discord_id, pid):
+            await interaction.followup.send(msg.presolved_reject(pid), ephemeral=True)
+            return
         try:
             grid = await asyncio.to_thread(pe_client.fetch_progress_grid, self.pe_username)
         except pe_client.ProgressUnavailable:
