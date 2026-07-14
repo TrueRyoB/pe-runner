@@ -484,6 +484,17 @@ async def introduce(interaction: discord.Interaction):
     await interaction.response.send_message(msg.INTRODUCE, delete_after=10)
 
 
+@tree.command(name="say", description="オイラーにゃんに喋らせるにゃ（指定秒で消える）")
+@app_commands.describe(message="喋らせる内容", seconds="消えるまでの秒数（1〜3600）")
+async def say(interaction: discord.Interaction, message: str,
+              seconds: app_commands.Range[int, 1, 3600]):
+    # Public, auto-deletes after `seconds`. Mentions disabled so it can't be used
+    # to ping @everyone/roles/users via the bot.
+    await interaction.response.send_message(
+        f"😺 {message}", delete_after=float(seconds),
+        allowed_mentions=discord.AllowedMentions.none())
+
+
 @tree.command(name="service", description="使えるコマンド一覧を表示するにゃ")
 async def service(interaction: discord.Interaction):
     e = discord.Embed(title="🐾 オイラーにゃん コマンド一覧", color=0xf1c40f)
@@ -497,6 +508,7 @@ async def service(interaction: discord.Interaction):
         "**/tweet** — 最後のコンテスト結果のツイート文を生成",
         "**/rating** — コミュニティ・レーティング（AtCoder風・非活動で減衰）",
         "**/introduce** — オイラーにゃんの自己紹介（10秒で消える）",
+        "**/say** `message` `seconds` — 指定内容を喋らせる（指定秒で消える）",
         "**/service** — このコマンド一覧",
         "（botメッセージを右クリック→アプリ→「botメッセージを削除」はオーナー限定にゃ）",
     ])
