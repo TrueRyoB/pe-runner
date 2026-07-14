@@ -28,7 +28,7 @@ except Exception:
 
 # Live status, surfaced on the health endpoint for remote diagnosis.
 STATUS = {"ready": False, "user": None, "guilds": [], "synced": {}, "errors": [],
-          "started_at": None}
+          "started_at": None, "db": None}
 _panel_registered = False
 
 import config
@@ -176,49 +176,48 @@ async def refresh_leaderboard(contest_row):
 # ---------------------------------------------------------------- commands
 
 async def _do_register(user_id: int, display_name: str, pe_username: str, friend_key: str):
-    """Core registration logic. Returns (ok, private_error_msg, public_success_msg).
+    """Core registration. Returns (public_msg, private_msg).
 
-    NOTE: no profile.txt existence gate (unreliable for private profiles). The
-    authoritative existence+friendship check is reading the friend's progress.
+    public_msg is set ONLY on verified success (progress readable), so the public
+    announcement appears only when registration truly succeeds. Failures and
+    pending (unreadable) cases are private to the user (public_msg=None).
+    NOTE: no profile.txt existence gate; reading the friend's progress is the
+    authoritative existence+friendship check.
     """
     uname = (pe_username or "").strip()
     fkey = (friend_key or "").strip()
     if not pe_client.valid_friend_key(fkey):
-        return False, msg.REGISTER_INVALID_KEY, None
+        return None, msg.REGISTER_INVALID_KEY
     count = db.participant_count()
     if db.get_participant(user_id) is None and count >= config.FRIEND_LIMIT:
-        return False, msg.register_limit(config.FRIEND_LIMIT), None
+        return None, msg.register_limit(config.FRIEND_LIMIT)
     db.upsert_participant(user_id, uname, fkey)
-    # Auto-add as a friend on the bot's PE account (was a manual operator step).
-    # Best-effort: the solved_ids check below is the authoritative confirmation.
+    # Auto-add as a friend on the bot's PE account (best-effort).
     try:
         await asyncio.to_thread(pe_client.add_friend, fkey)
     except Exception:
         pass
     try:
         await asyncio.to_thread(pe_client.solved_ids, uname)
-        note = msg.REGISTER_NOTE_VERIFIED
     except (pe_client.ProgressUnavailable, pe_client.SolveStatusUnavailable):
-        note = msg.REGISTER_NOTE_PENDING   # wrong username OR not friended yet
+        return None, msg.register_pending(display_name, uname, msg.REGISTER_NOTE_PENDING)
     except pe_client.SessionExpired:
-        note = msg.REGISTER_NOTE_UNKNOWN   # bot's own PE session problem
+        return None, msg.register_pending(display_name, uname, msg.REGISTER_NOTE_UNKNOWN)
     except Exception:
-        note = msg.REGISTER_NOTE_UNKNOWN
+        return None, msg.register_pending(display_name, uname, msg.REGISTER_NOTE_UNKNOWN)
+    # verified
     warn = ""
     if count + 1 >= config.FRIEND_LIMIT - 5:
         warn = msg.register_warn(count + 1, config.FRIEND_LIMIT)
-    return True, None, msg.register_ok(display_name, uname, note, warn)
+    return msg.register_ok(display_name, uname, msg.REGISTER_NOTE_VERIFIED, warn), msg.REGISTER_ACK
 
 
-async def _finish_register(interaction: discord.Interaction, ok, priv, pub):
-    """Public success (posted to the channel) or ephemeral error to the user.
-    Uses channel.send for the public part — non-ephemeral followups after an
-    ephemeral defer/response stay private, so we must post to the channel."""
-    if ok:
-        await interaction.channel.send(pub)
-        await interaction.followup.send(msg.REGISTER_ACK, ephemeral=True)
-    else:
-        await interaction.followup.send(priv, ephemeral=True)
+async def _finish_register(interaction: discord.Interaction, public_msg, private_msg):
+    """Public announcement only on verified success; otherwise private-only.
+    channel.send for the public part (ephemeral followups stay private)."""
+    if public_msg:
+        await interaction.channel.send(public_msg)
+    await interaction.followup.send(private_msg, ephemeral=True)
 
 
 class RegisterModal(discord.ui.Modal):
@@ -236,10 +235,10 @@ class RegisterModal(discord.ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        ok, priv, pub = await _do_register(
+        public_msg, private_msg = await _do_register(
             interaction.user.id, interaction.user.display_name,
             str(self.pe_username), str(self.friend_key))
-        await _finish_register(interaction, ok, priv, pub)
+        await _finish_register(interaction, public_msg, private_msg)
 
 
 class RegisterPanel(discord.ui.View):
@@ -260,8 +259,8 @@ class RegisterPanel(discord.ui.View):
 
 @tree.command(name="register", description="参加登録ボタンを設置するにゃ（ボタンから登録）")
 async def register(interaction: discord.Interaction):
-    await interaction.channel.send(msg.REGISTER_PANEL_TEXT, view=RegisterPanel())
-    await interaction.response.send_message("参加登録ボタンを設置したにゃ！", ephemeral=True)
+    # The panel itself is the (public) response — no extra "設置したにゃ" ack.
+    await interaction.response.send_message(msg.REGISTER_PANEL_TEXT, view=RegisterPanel())
 
 
 def _contest_type_choices():
@@ -660,6 +659,7 @@ def start_keepalive_server():
 def main():
     config.require("DISCORD_TOKEN", "GUILD_ID", "PE_BOT_USERNAME")
     STATUS["started_at"] = int(time.time())  # to measure uptime / restart frequency
+    STATUS["db"] = "turso" if db.USING_TURSO else "sqlite"
     start_keepalive_server()
     client.run(config.DISCORD_TOKEN)
 

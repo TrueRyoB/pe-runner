@@ -43,7 +43,12 @@ def register_ok(display_name: str, pe_username: str, note: str, warn: str = "") 
             f"ようこそにゃ〜！\n{note}{warn}")
 
 
-REGISTER_ACK = "✅ 登録したにゃ！（結果はみんなに公開したにゃ）"
+REGISTER_ACK = "✅ 登録できたにゃ！（みんなに公開したにゃ）"
+
+
+def register_pending(display_name: str, pe_username: str, note: str) -> str:
+    return (f"⏳ {display_name}さん、{pe_username} で登録は受け付けたにゃ。"
+            f"でもまだ確認できてないにゃ:\n{note}")
 REGISTER_PANEL_TEXT = (
     "🐾 **コンテスト参加登録** 🐾\n"
     "下のボタンから、PEユーザ名と friend key を登録してにゃ！（一度だけでOK）\n"
