@@ -69,7 +69,7 @@ def _config_cookies() -> dict[str, str]:
             if "=" in part:
                 name, _, value = part.strip().partition("=")
                 jar[name.strip()] = value.strip()
-        return jar
+        return _normalize(jar)
     # Fallback: individual cookies; a bare value gets its conventional name.
     sess = config.PE_SESSION_COOKIE.strip()
     if sess:
@@ -85,6 +85,14 @@ def _config_cookies() -> dict[str, str]:
         else:
             name, value = "keep_alive", keep
         jar[name.strip()] = value.strip()
+    return _normalize(jar)
+
+
+def _normalize(jar: dict[str, str]) -> dict[str, str]:
+    """PE's real session cookie is `__Host-PHPSESSID` (a __Host- prefixed cookie),
+    NOT plain `PHPSESSID`. People routinely copy it under the wrong name, so fix it."""
+    if "PHPSESSID" in jar and "__Host-PHPSESSID" not in jar:
+        jar["__Host-PHPSESSID"] = jar.pop("PHPSESSID")
     return jar
 
 
@@ -183,18 +191,30 @@ def fetch_progress_grid(username: str) -> dict[int, ProblemCell]:
 
 
 def _parse_grid(html: str) -> dict[int, ProblemCell]:
+    """Parse the progress grid.
+
+    The page contains problems twice (a by-number grid and a by-level grid), so we
+    dedupe by id. Per-problem solve status comes from the cell's own_problem_* class:
+      - own_problem_solved   -> solved = True
+      - own_problem_unsolved -> solved = False
+      - neither (plain/unauthorized grid, e.g. a stranger's page or a 0-solve self
+        page) -> solved = None  (i.e. "solve status not exposed here")
+    Difficulty/title/global-count are always present, so catalog use works either way.
+    """
     soup = BeautifulSoup(html, "lxml")
     cells: dict[int, ProblemCell] = {}
     for a in soup.select('a[href^="problem="]'):
-        href = a.get("href", "")
-        m = re.search(r"problem=(\d+)", href)
+        m = re.search(r"problem=(\d+)", a.get("href", ""))
         if not m:
             continue
         pid = int(m.group(1))
-        div = a.find("div")
-        classes = " ".join(div.get("class", [])) if div else ""
-        # Solved unless the status div is explicitly marked unsolved.
-        solved = "unsolved" not in classes
+        ahtml = str(a)
+        if "own_problem_unsolved" in ahtml:
+            solved = False
+        elif "own_problem_solved" in ahtml:
+            solved = True
+        else:
+            solved = None
         tip = a.get_text(" ", strip=True)
         diff_m = _DIFF_RE.search(tip)
         difficulty = int(diff_m.group(1)) if diff_m else 0
@@ -203,9 +223,17 @@ def _parse_grid(html: str) -> dict[int, ProblemCell]:
         sb_m = _SOLVED_BY_RE.search(tip)
         global_solved_by = int(sb_m.group(1).replace(",", "")) if sb_m else 0
         solved_epoch = _parse_date(tip) if solved else None
-        cells[pid] = ProblemCell(pid, solved, difficulty, title,
-                                 global_solved_by, solved_epoch)
+        cell = ProblemCell(pid, solved, difficulty, title, global_solved_by, solved_epoch)
+        # Dedupe across the two grids; prefer a cell whose solve status is known.
+        old = cells.get(pid)
+        if old is None or (old.solved is None and solved is not None):
+            cells[pid] = cell
     return cells
+
+
+def _exposes_solve_status(grid: dict[int, ProblemCell]) -> bool:
+    """True if this page actually revealed per-problem solve status (self or friend)."""
+    return any(c.solved is not None for c in grid.values())
 
 
 def valid_friend_key(key: str) -> bool:
@@ -231,8 +259,19 @@ def username_exists(username: str) -> bool:
     return first == u.lower()
 
 
+class SolveStatusUnavailable(RuntimeError):
+    """The progress page loaded but didn't expose this user's per-problem solve
+    status — we're neither them nor an accepted friend (or they've solved nothing
+    and PE shows a plain grid)."""
+
+
 def solved_ids(username: str) -> set[int]:
-    return {pid for pid, c in fetch_progress_grid(username).items() if c.solved}
+    grid = fetch_progress_grid(username)
+    if not _exposes_solve_status(grid):
+        raise SolveStatusUnavailable(
+            f"{username} の解答状況を読めません（bot と friend 登録されていない可能性）。"
+        )
+    return {pid for pid, c in grid.items() if c.solved}
 
 
 def catalog() -> dict[int, ProblemCell]:

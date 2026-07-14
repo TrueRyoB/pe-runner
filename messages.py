@@ -80,6 +80,11 @@ SELECT_PLACEHOLDER = "ACした問題を選ぶにゃ"
 SUBMIT_PROMPT = "😸 どの問題をACしたのニャ？選んでにゃ:"
 
 
+def cannot_read_progress() -> str:
+    return ("🙀 キミの解答状況が読めないにゃ… ボク(bot)とfriend登録できてるか"
+            "運営に確認してほしいにゃ。")
+
+
 def not_solved(pid: int) -> str:
     return (f"🙀 Problem {pid} はまだACとして確認できないにゃ…\n"
             "解けてたら少し待ってからもう一度試してにゃ！")

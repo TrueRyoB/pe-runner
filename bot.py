@@ -131,8 +131,10 @@ async def register(interaction: discord.Interaction, pe_username: str, friend_ke
     try:
         await asyncio.to_thread(pe_client.solved_ids, uname)
         note = msg.REGISTER_NOTE_VERIFIED
+    except pe_client.SolveStatusUnavailable:
+        note = msg.REGISTER_NOTE_PENDING   # friendship not set up yet
     except pe_client.SessionExpired:
-        note = msg.REGISTER_NOTE_PENDING
+        note = msg.REGISTER_NOTE_UNKNOWN   # bot's own PE session problem
     except Exception:
         note = msg.REGISTER_NOTE_UNKNOWN
 
@@ -224,6 +226,9 @@ class SubmitView(discord.ui.View):
             grid = await asyncio.to_thread(pe_client.fetch_progress_grid, self.pe_username)
         except pe_client.SessionExpired as e:
             await interaction.followup.send(msg.session_expired(e), ephemeral=True)
+            return
+        if not pe_client._exposes_solve_status(grid):
+            await interaction.followup.send(msg.cannot_read_progress(), ephemeral=True)
             return
         cell = grid.get(pid)
         if not cell or not cell.solved:
