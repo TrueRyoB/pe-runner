@@ -41,16 +41,6 @@ tree = app_commands.CommandTree(client)
 
 # ---------------------------------------------------------------- helpers
 
-def is_organizer(interaction: discord.Interaction) -> bool:
-    if config.ORGANIZER_ROLE_ID:
-        member = interaction.user
-        return isinstance(member, discord.Member) and any(
-            r.id == config.ORGANIZER_ROLE_ID for r in member.roles
-        )
-    perms = getattr(interaction.user, "guild_permissions", None)
-    return bool(perms and perms.manage_guild)
-
-
 def parse_start(text: str) -> int:
     """Parse a start time in the configured TZ; reject past times.
 
@@ -189,7 +179,7 @@ def _contest_type_choices():
     return out
 
 
-@tree.command(name="create_contest", description="コンテストを作成するにゃ（運営のみ）")
+@tree.command(name="create_contest", description="コンテストを作成するにゃ（誰でもOK）")
 @app_commands.describe(
     start="開始時刻: '21:00'(今日) / '07-15 21:00' / '2026-07-15 21:00'（"
           + str(config.TIMEZONE) + "・過去は不可）",
@@ -198,9 +188,6 @@ def _contest_type_choices():
 @app_commands.choices(contest_type=_contest_type_choices())
 async def create_contest(interaction: discord.Interaction, start: str,
                          contest_type: app_commands.Choice[str]):
-    if not is_organizer(interaction):
-        await interaction.response.send_message(msg.NOT_ORGANIZER, ephemeral=True)
-        return
     await interaction.response.defer(ephemeral=True)
     try:
         start_epoch = parse_start(start)
