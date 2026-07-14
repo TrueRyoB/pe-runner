@@ -552,7 +552,26 @@ async def feedback_list(interaction: discord.Interaction,
     e.description = "\n\n".join(
         f"**#{r['id']}** ({r['created_at'].replace('T', ' ')})\n{r['message']}"
         for r in rows)[:4000]
-    await interaction.response.send_message(embed=e, ephemeral=True)
+    ids = [r["id"] for r in rows]
+    await interaction.response.send_message(
+        embed=e, view=FeedbackReadView(ids), ephemeral=True)
+
+
+class FeedbackReadView(discord.ui.View):
+    """Shown with /feedback_list (owner-only, ephemeral). The button deletes exactly
+    the feedback rows that were displayed (mark-as-read)."""
+    def __init__(self, ids: list[int]):
+        super().__init__(timeout=600)
+        self.ids = ids
+
+    @discord.ui.button(label="閲覧済み（表示分を削除）🗑️", style=discord.ButtonStyle.danger)
+    async def mark_read(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_owner(interaction.user):
+            await interaction.response.send_message(msg.NOT_OWNER, ephemeral=True)
+            return
+        db.delete_feedback(self.ids)
+        await interaction.response.edit_message(
+            content=msg.feedback_cleared(len(self.ids)), embed=None, view=None)
 
 
 @tree.command(name="service", description="使えるコマンド一覧を表示するにゃ")

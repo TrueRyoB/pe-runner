@@ -181,6 +181,10 @@ def feedback_title(n: int) -> str:
     return f"📨 フィードバック（全{n}件・匿名）"
 
 
+def feedback_cleared(n: int) -> str:
+    return f"🗑️ 表示していた {n} 件を削除したにゃ（閲覧済み）。"
+
+
 # --- /tweet ---
 
 NO_CONTEST_TWEET = "😿 まだツイートできるコンテストが無いにゃ。"

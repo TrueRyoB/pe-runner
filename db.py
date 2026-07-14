@@ -342,5 +342,12 @@ def feedback_count() -> int:
     return _row("SELECT COUNT(*) AS n FROM feedback")["n"]
 
 
+def delete_feedback(ids: list[int]):
+    if not ids:
+        return
+    placeholders = ",".join("?" for _ in ids)
+    _write(f"DELETE FROM feedback WHERE id IN ({placeholders})", tuple(ids))
+
+
 def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S")
