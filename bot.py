@@ -27,7 +27,8 @@ except Exception:
     pass
 
 # Live status, surfaced on the health endpoint for remote diagnosis.
-STATUS = {"ready": False, "user": None, "guilds": [], "synced": {}, "errors": []}
+STATUS = {"ready": False, "user": None, "guilds": [], "synced": {}, "errors": [],
+          "started_at": None}
 _panel_registered = False
 
 import config
@@ -604,6 +605,7 @@ def start_keepalive_server():
 
 def main():
     config.require("DISCORD_TOKEN", "GUILD_ID", "PE_BOT_USERNAME")
+    STATUS["started_at"] = int(time.time())  # to measure uptime / restart frequency
     start_keepalive_server()
     client.run(config.DISCORD_TOKEN)
 
