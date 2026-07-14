@@ -3,5 +3,7 @@ __pycache__/
 .env
 *.db
 *.sqlite3
+pe_cookies.pkl
+*.pkl
 .venv/
 venv/

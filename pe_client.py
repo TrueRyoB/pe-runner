@@ -11,7 +11,10 @@ raise SessionExpired and the operator must refresh the cookie.
 """
 from __future__ import annotations
 
+import os
+import pickle
 import re
+import threading
 from calendar import timegm
 from datetime import datetime, timezone
 from urllib.parse import quote
@@ -51,22 +54,94 @@ class ProblemCell:
         self.solved_epoch = solved_epoch
 
 
-def _session() -> requests.Session:
-    s = requests.Session()
-    s.headers["User-Agent"] = "pe-runner-contest-bot/0.1 (private hobby contest)"
-    cookie = config.PE_SESSION_COOKIE.strip()
-    if cookie:
-        # Accept either "PHPSESSID=xxx" or a bare value.
-        if "=" in cookie:
-            name, _, value = cookie.partition("=")
+# A browser-like UA avoids PE's anti-bot handling on some endpoints.
+_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+
+
+def _config_cookies() -> dict[str, str]:
+    """Resolve the cookies to send. PE auth needs BOTH PHPSESSID and keep_alive."""
+    jar: dict[str, str] = {}
+    # Preferred: a full "k=v; k2=v2" header string.
+    full = config.PE_COOKIE.strip()
+    if full:
+        for part in full.split(";"):
+            if "=" in part:
+                name, _, value = part.strip().partition("=")
+                jar[name.strip()] = value.strip()
+        return jar
+    # Fallback: individual cookies; a bare value gets its conventional name.
+    sess = config.PE_SESSION_COOKIE.strip()
+    if sess:
+        if "=" in sess:
+            name, _, value = sess.partition("=")
         else:
-            name, value = "PHPSESSID", cookie
-        s.cookies.set(name.strip(), value.strip(), domain="projecteuler.net")
+            name, value = "PHPSESSID", sess
+        jar[name.strip()] = value.strip()
     keep = config.PE_KEEP_ALIVE_COOKIE.strip()
-    if keep and "=" in keep:
-        name, _, value = keep.partition("=")
-        s.cookies.set(name.strip(), value.strip(), domain="projecteuler.net")
-    return s
+    if keep:
+        if "=" in keep:
+            name, _, value = keep.partition("=")
+        else:
+            name, value = "keep_alive", keep
+        jar[name.strip()] = value.strip()
+    return jar
+
+
+# PE's keep_alive is a ROTATING remember-me token: each authenticated request may
+# hand back a fresh one via Set-Cookie, invalidating the old. So we keep ONE
+# long-lived session (auto-updates its jar), persist that jar to disk across
+# restarts, and serialize requests so concurrent calls can't race the rotation.
+# The .env cookie is only the initial SEED; once seeded, the persisted jar wins —
+# unless .env is edited afterwards (mtime newer), which forces a re-seed.
+_SESSION: requests.Session | None = None
+_LOCK = threading.Lock()
+
+
+def _jar_is_fresher_than_env() -> bool:
+    jar, env = config.COOKIE_JAR_PATH, str(config.ENV_PATH)
+    if not os.path.exists(jar):
+        return False
+    if not os.path.exists(env):
+        return True
+    return os.path.getmtime(jar) >= os.path.getmtime(env)
+
+
+def _session() -> requests.Session:
+    global _SESSION
+    if _SESSION is not None:
+        return _SESSION
+    s = requests.Session()
+    s.headers["User-Agent"] = _UA
+    loaded = False
+    if _jar_is_fresher_than_env():
+        try:
+            with open(config.COOKIE_JAR_PATH, "rb") as f:
+                s.cookies.update(pickle.load(f))
+            loaded = True
+        except Exception:
+            loaded = False
+    if not loaded:  # (re)seed from .env
+        for name, value in _config_cookies().items():
+            s.cookies.set(name, value, domain="projecteuler.net")
+    _SESSION = s
+    return _SESSION
+
+
+def _save_cookies():
+    if _SESSION is None:
+        return
+    try:
+        with open(config.COOKIE_JAR_PATH, "wb") as f:
+            pickle.dump(_SESSION.cookies, f)
+    except Exception:
+        pass
+
+
+def reset_session():
+    """Drop the in-memory session (next call rebuilds it from jar/.env)."""
+    global _SESSION
+    _SESSION = None
 
 
 def _parse_date(text: str) -> int | None:
@@ -85,23 +160,26 @@ def fetch_progress_grid(username: str) -> dict[int, ProblemCell]:
 
     Requires that our session can view this user's progress (self or friend).
     """
-    resp = _session().get(PROGRESS_URL.format(username=username), timeout=30)
-    resp.raise_for_status()
-    html = resp.text
+    with _LOCK:  # serialize to avoid racing the rotating keep_alive token
+        resp = _session().get(PROGRESS_URL.format(username=quote(username, safe="")),
+                              timeout=30)
+        resp.raise_for_status()
+        html = resp.text
 
-    # A logged-out / expired session gets redirected to the sign-in page.
-    if "sign_in" in resp.url or "name=\"Username\"" in html or "Sign In" in html[:2000]:
-        raise SessionExpired(
-            "PE session appears invalid/expired. Refresh PE_SESSION_COOKIE."
-        )
+        # A logged-out / expired session is redirected to sign_in / about.
+        redirected = any(x in resp.url for x in ("/sign_in", "/about"))
+        if redirected or 'name="Username"' in html:
+            raise SessionExpired(
+                "PEセッションが無効/失効。ブラウザで取り直して .env を更新してください。"
+            )
 
-    cells = _parse_grid(html)
-    if not cells:
-        raise SessionExpired(
-            "No problem grid found — the page structure changed or the user is not "
-            "viewable with the current session."
-        )
-    return cells
+        cells = _parse_grid(html)
+        if not cells:
+            raise SessionExpired(
+                "問題グリッドが見つかりません（未認証か、このユーザを閲覧できません）。"
+            )
+        _save_cookies()  # persist any rotated cookies PE just handed back
+        return cells
 
 
 def _parse_grid(html: str) -> dict[int, ProblemCell]:
@@ -143,7 +221,9 @@ def username_exists(username: str) -> bool:
     u = (username or "").strip()
     if not u:
         return False
-    resp = _session().get(PROFILE_TXT_URL.format(username=quote(u, safe="")), timeout=20)
+    with _LOCK:
+        resp = _session().get(PROFILE_TXT_URL.format(username=quote(u, safe="")),
+                              timeout=20)
     body = resp.text.strip()
     if not body or "<" in body[:50]:  # empty => not found; HTML => error page
         return False

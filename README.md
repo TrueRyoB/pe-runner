@@ -42,7 +42,8 @@
    （運営が手動追加。これで bot がその人の progress を読めるようになる）。
 
 ### 2. Discord 側
-1. https://discord.com/developers で Application → Bot を作成し、token を取得。
+1. https://discord.com/developers/applications で「New Application」→ 左メニュー Bot →
+   「Reset Token」で token を取得。
 2. `applications.commands` と `bot` スコープでサーバに招待。
 3. `.env` の `DISCORD_TOKEN` と `GUILD_ID` を設定。
 
