@@ -90,9 +90,10 @@ def select_fail(err) -> str:
             "難易度タイプをゆるめるか、問題数を減らしてみてにゃ。")
 
 
-def contest_recruiting(name: str, joined_ids: list[int]) -> str:
+def contest_recruiting(name: str, joined_ids: list[int], subtitle: str = "") -> str:
     who = " ".join(f"<@{i}>" for i in joined_ids) if joined_ids else "もぬけの空にゃ"
-    return (f"🎟️ **{name}** 参加受付中にゃ！\n"
+    sub = f"　🗂️ {subtitle}\n" if subtitle else ""   # no code span: <t:…> must render
+    return (f"🎟️ **{name}** 参加受付中にゃ！\n{sub}"
             f"下のボタンで参加にゃ！（もう一度押すと取り消し）\n\n"
             f"**参加者({len(joined_ids)}):** {who}")
 

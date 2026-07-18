@@ -149,6 +149,13 @@ def create_contest(name, start_epoch, duration_min, contest_type, num_problems,
     return row["id"]
 
 
+def count_contests_by_type(contest_type: str) -> int:
+    """How many contests of this format exist (for the per-format serial: ERC001…).
+    Counts every row incl. cancelled ones, so numbers are permanent and never reused."""
+    return _row("SELECT COUNT(*) AS n FROM contests WHERE contest_type=?",
+                (contest_type,))["n"]
+
+
 def set_join_message(contest_id: int, message_id: int):
     _write("UPDATE contests SET join_message_id=? WHERE id=?",
            (str(message_id), contest_id))

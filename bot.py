@@ -322,8 +322,9 @@ async def create_contest(interaction: discord.Interaction, start: str,
     # open, no later than 5min before start; and never in the past.
     draw_epoch = max(now, min(start_epoch - 300, max(start_epoch - 3600, now + 600)))
 
-    when = datetime.fromtimestamp(start_epoch, config.TIMEZONE).strftime("%m-%d %H:%M")
-    name = f"{spec['label']}コンテスト {when}"
+    # AtCoder-style code + per-format serial (ERC001 / EHC001 / EFC001), permanent.
+    seq = db.count_contests_by_type(contest_type.value) + 1
+    name = f"{spec['code']}{seq:03d}"
     # hardcore's problem count depends on the randomly-drawn variant; store a nominal
     # now (0 = unknown) and set the real count at draw time (_draw_contest).
     cid = db.create_contest(name, start_epoch, spec["duration"], contest_type.value,
@@ -332,10 +333,19 @@ async def create_contest(interaction: discord.Interaction, start: str,
     # Public recruiting announcement with Join/Leave buttons (no problems yet —
     # they're drawn at draw_epoch from whoever actually joined).
     sent = await interaction.channel.send(
-        msg.contest_recruiting(name, []),
+        msg.contest_recruiting(name, [], _recruit_subtitle(contest_type.value, start_epoch)),
         view=JoinView())
     db.set_join_message(cid, sent.id)
     await interaction.followup.send(msg.create_ack(), ephemeral=True)
+
+
+def _recruit_subtitle(contest_type: str, start_epoch: int) -> str:
+    """Context line under the terse code (ERC001): format, duration, recipe, start."""
+    spec = contest_mod.CONTEST_TYPES.get(contest_type, {})
+    label = spec.get("label", contest_type)
+    dur = spec.get("duration", "?")
+    recipe = contest_mod.recipe_summary(spec) if spec else ""
+    return f"{label}・{dur}分・{recipe}・開始 <t:{start_epoch}:F>"
 
 
 class JoinView(discord.ui.View):
@@ -350,7 +360,8 @@ class JoinView(discord.ui.View):
         ids = [p["discord_id"] for p in db.joined_participants(c["id"])]
         try:
             await interaction.message.edit(
-                content=msg.contest_recruiting(c["name"], ids),
+                content=msg.contest_recruiting(
+                    c["name"], ids, _recruit_subtitle(c["contest_type"], c["start_epoch"])),
                 view=self, allowed_mentions=discord.AllowedMentions.none())
         except Exception:
             pass

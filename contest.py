@@ -33,17 +33,17 @@ BANDS: dict[str, tuple[int, int]] = {
 # alternative recipes, one picked at random per contest at draw time.
 CONTEST_TYPES: dict[str, dict] = {
     "normal": {
-        "label": "ノーマル", "duration": 100,
+        "label": "ノーマル", "code": "ERC", "duration": 100,   # Euler Regular Contest
         "slots": [("簡単", 1), ("中下位", 2), ("中上位", 2), ("上位", 1)],
         "perf_cap": None, "loss_floor": 0.0,
     },
     "hardcore": {
-        "label": "ハードコア", "duration": 240,
+        "label": "ハードコア", "code": "EHC", "duration": 240,  # Euler HardCore
         "variants": [[("中位", 10)], [("上上位", 4)]],  # random one at draw
         "perf_cap": None, "loss_floor": 0.35,           # 負けより勝ちを優先
     },
     "speed": {
-        "label": "スピード", "duration": 15,
+        "label": "スピード", "code": "EFC", "duration": 15,     # Euler Fast Contest
         "slots": [("簡単", 2), ("中位", 1)],
         "perf_cap": 0.6, "loss_floor": 0.0,             # 荒稼ぎ防止
     },
