@@ -579,8 +579,7 @@ async def tweet(interaction: discord.Interaction):
         return
     text = _build_tweet(contest_row, db.leaderboard(contest_row["id"]))
     url = "https://twitter.com/intent/tweet?text=" + quote(text)
-    await interaction.channel.send(msg.tweet_panel(text, url))
-    await interaction.followup.send("ツイート文を出したにゃ🐦", ephemeral=True)
+    await interaction.followup.send(msg.tweet_panel(text, url), ephemeral=True)
 
 
 @tree.command(name="introduce", description="オイラーにゃんが自己紹介するにゃ（10秒で消える）")

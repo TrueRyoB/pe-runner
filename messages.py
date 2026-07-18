@@ -238,7 +238,7 @@ def profile_body(current: int, delta: int, highest: int, live, n: int) -> str:
 
 def tweet_panel(text: str, url: str) -> str:
     return (f"🐦 最後のコンテスト結果のツイート文だにゃ！下のリンクから投稿してにゃ：\n"
-            f"`\n{url}")
+            f"```\n{text}\n```\n{url}")
 
 
 # --- /leaderboard & embeds ---
@@ -275,7 +275,8 @@ def contest_start(name: str, when: str, problem_list: str) -> str:
 
 
 def contest_end(name: str) -> str:
-    return (f"🏁 **{name}** 終了! おつでしたにゃ")
+    return (f"🏁 **{name}** 終了! おつかれさまでした。\n"
+            "🐦 /tweetよろしくにゃ〜")
 
 
 INTRODUCE = (
