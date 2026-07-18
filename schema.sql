@@ -56,6 +56,18 @@ CREATE TABLE IF NOT EXISTS performances (
     PRIMARY KEY (discord_id, contest_id)
 );
 
+-- Post-contest rating snapshot: the (un-decayed) rating each participant held right
+-- after a contest finished. Powers /profile's `xxx (+yyy) (highest:zzz)` — the live
+-- /rating table is still recomputed from performances, but +delta and highest need
+-- the historical values, which live recomputation (with decay) can't reconstruct.
+CREATE TABLE IF NOT EXISTS rating_snapshots (
+    discord_id TEXT NOT NULL,
+    contest_id INTEGER NOT NULL,
+    rating     INTEGER NOT NULL,
+    at_epoch   INTEGER NOT NULL,
+    PRIMARY KEY (discord_id, contest_id)
+);
+
 CREATE TABLE IF NOT EXISTS votes (
     discord_id TEXT NOT NULL,
     problem_id INTEGER NOT NULL,

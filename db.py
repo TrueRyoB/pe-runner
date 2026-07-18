@@ -120,6 +120,12 @@ def get_participant(discord_id: int) -> dict | None:
     return _row("SELECT * FROM participants WHERE discord_id=?", (str(discord_id),))
 
 
+def get_participant_by_pe(pe_username: str) -> dict | None:
+    """Look up a participant by PE username (case-insensitive). For /profile."""
+    return _row("SELECT * FROM participants WHERE LOWER(pe_username)=LOWER(?)",
+                (pe_username.strip(),))
+
+
 def all_participants() -> list[dict]:
     return _rows("SELECT * FROM participants")
 
@@ -242,6 +248,11 @@ def set_leaderboard_message(contest_id: int, message_id: int):
            (str(message_id), contest_id))
 
 
+def set_num_problems(contest_id: int, n: int):
+    """Set the actual drawn problem count (hardcore's variant is only known at draw)."""
+    _write("UPDATE contests SET num_problems=? WHERE id=?", (n, contest_id))
+
+
 def contests_by_status(status: str) -> list[dict]:
     return _rows("SELECT * FROM contests WHERE status=?", (status,))
 
@@ -288,6 +299,16 @@ def solved_map(contest_id: int) -> dict[int, set]:
     for r in _rows("SELECT discord_id, problem_id FROM solves WHERE contest_id=?",
                    (contest_id,)):
         m.setdefault(r["discord_id"], set()).add(r["problem_id"])
+    return m
+
+
+def solve_times_map(contest_id: int) -> dict[str, dict[int, int]]:
+    """{discord_id: {problem_id: confirmed_epoch}} — for showing AC times (mm:ss)
+    on the leaderboard. Uses verified_epoch (when the bot confirmed the solve)."""
+    m: dict[str, dict[int, int]] = {}
+    for r in _rows("SELECT discord_id, problem_id, verified_epoch FROM solves "
+                   "WHERE contest_id=?", (contest_id,)):
+        m.setdefault(r["discord_id"], {})[r["problem_id"]] = r["verified_epoch"]
     return m
 
 
@@ -345,6 +366,28 @@ def all_performances() -> list[dict]:
         "SELECT f.discord_id, p.pe_username, f.perf, f.at_epoch "
         "FROM performances f JOIN participants p ON p.discord_id = f.discord_id "
         "ORDER BY f.at_epoch DESC")
+
+
+def user_performances(discord_id: int) -> list[dict]:
+    """One user's performances, most-recent first (for rating.compute / /profile)."""
+    return _rows(
+        "SELECT perf, at_epoch FROM performances WHERE discord_id=? "
+        "ORDER BY at_epoch DESC", (str(discord_id),))
+
+
+def record_rating_snapshot(discord_id: int, contest_id: int, rating: int, at_epoch: int):
+    _write(
+        "INSERT OR REPLACE INTO rating_snapshots (discord_id, contest_id, rating, at_epoch) "
+        "VALUES (?,?,?,?)",
+        (str(discord_id), contest_id, rating, at_epoch),
+    )
+
+
+def rating_snapshots(discord_id: int) -> list[dict]:
+    """One user's post-contest rating snapshots, oldest first (for +delta / highest)."""
+    return _rows(
+        "SELECT contest_id, rating, at_epoch FROM rating_snapshots WHERE discord_id=? "
+        "ORDER BY at_epoch ASC", (str(discord_id),))
 
 
 # --- anonymous feedback (no sender identity stored) ---

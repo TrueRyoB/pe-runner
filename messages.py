@@ -131,17 +131,11 @@ def late_join_presolved(pids: list[int]) -> str:
             f"**0点**扱いになるにゃ。")
 
 
-def presolved_reject(pid: int) -> str:
-    return f"🙅 Problem {pid} は参加前に既にAC済みだから0点にゃ（提出できないにゃ）。"
-
-
 # --- /submit ---
 
 NOT_REGISTERED = "🐾 まだ参加登録してないにゃ！`/register <PEユーザ名> <friend key>` で登録してにゃ！"
 NO_RUNNING = "😴 いまは開催中のコンテストがないにゃ〜。"
 NOTHING_TO_SUBMIT = "😺 提出できる問題がもうないにゃ！全部AC済みかもにゃ、すごいにゃ〜！"
-SELECT_PLACEHOLDER = "ACした問題を選ぶにゃ"
-SUBMIT_PROMPT = "😸 どの問題をACしたのニャ？選んでにゃ:"
 
 
 def cannot_read_progress() -> str:
@@ -149,18 +143,16 @@ def cannot_read_progress() -> str:
             "運営に確認してほしいにゃ。")
 
 
-def not_solved(pid: int) -> str:
-    return (f"🙀 Problem {pid} はまだACとして確認できないにゃ…\n"
-            "解けてたら少し待ってからもう一度試してにゃ！")
+def submit_batch_ok(display_name: str, newly: list) -> str:
+    total = sum(pts for _, pts in newly)
+    detail = "、".join(f"P{pid}(+{pts})" for pid, pts in newly)
+    return (f"🎉 {display_name}さん、{len(newly)}問のACを確認したにゃ！ "
+            f"{detail} で計 **+{total}ポイント** にゃ〜！やったにゃ！")
 
 
-def already_counted(pid: int) -> str:
-    return f"😹 Problem {pid} はもう計上済みだにゃ〜。"
-
-
-def submit_ok(display_name: str, pid: int, points: int) -> str:
-    return (f"🎉 {display_name}さん、Problem {pid} のAC確認したにゃ！ "
-            f"+{points}ポイントにゃ〜！やったにゃ！")
+def submit_none_new() -> str:
+    return ("🙀 まだ新しくACとして確認できた問題は無かったにゃ…\n"
+            "解けてたら少し待ってからもう一度 `/submit` してにゃ！")
 
 
 # --- /recommend & /recommendations ---
@@ -217,6 +209,30 @@ def rating_half_life() -> float:
     return _r.HALF_LIFE_DAYS
 
 
+# --- /profile ---
+
+def profile_not_found(pe_username: str) -> str:
+    return (f"🙀 `{pe_username}` の登録が見つからなかったにゃ…\n"
+            "PEユーザ名のスペルを確認してにゃ（登録済みの人だけ見れるにゃ）。")
+
+
+def profile_no_rating(pe_username: str) -> str:
+    return f"😿 {pe_username} はまだレートが無いにゃ（コンテストを1つ完走すると付くにゃ）。"
+
+
+def profile_title(pe_username: str) -> str:
+    return f"📊 {pe_username} のレートにゃ"
+
+
+def profile_body(current: int, delta: int, highest: int, live, n: int) -> str:
+    sign = f"+{delta}" if delta >= 0 else str(delta)
+    body = f"**{current}** ({sign}) (highest:{highest})\n{n}戦"
+    days = int(live["days_inactive"]) if live else 0
+    if live and days > 0:
+        body += f"\n※ 現在の実効レート **{live['rating']}**（{days}日非活動で減衰中）"
+    return body
+
+
 def tweet_panel(text: str, url: str) -> str:
     return (f"🐦 最後のコンテスト結果のツイート文だにゃ！下のリンクから投稿してにゃ：\n"
             f"```\n{text}\n```\n{url}")
@@ -239,6 +255,13 @@ def lb_title(name: str) -> str:
 def lb_footer(max_pts: int, n: int, status: str) -> str:
     label = {"running": "開催中", "finished": "終了", "scheduled": "開始前"}.get(status, status)
     return f"満点 {max_pts}pts / {n}問 · {label} · by オイラーにゃん🐾"
+
+
+def lb_time_line(end_epoch: int, status: str) -> str:
+    """Live end-time / remaining line for the leaderboard (Discord dynamic timestamps)."""
+    if status == "finished":
+        return f"🏁 終了しました（<t:{end_epoch}:F>）\n"
+    return f"⏰ 終了 <t:{end_epoch}:t> ・ 残り <t:{end_epoch}:R>\n"
 
 
 # --- scheduler events ---

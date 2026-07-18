@@ -101,16 +101,35 @@ async def union_solved(participants):
 
 
 def leaderboard_embed(contest_row) -> discord.Embed:
-    problems = sorted(db.contest_problems(contest_row["id"]), key=lambda p: p["problem_id"])
+    # Presentation order = how the problems were announced (difficulty asc, id tiebreak),
+    # NOT problem-id order. db.contest_problems already returns them ORDER BY difficulty.
+    problems = db.contest_problems(contest_row["id"])
     smap = db.solved_map(contest_row["id"])
     pmap = db.presolved_map(contest_row["id"])
+    tmap = db.solve_times_map(contest_row["id"])
     lb = {r["discord_id"]: r for r in db.leaderboard(contest_row["id"])}
     max_pts = sum(p["difficulty"] for p in problems)
     status = contest_row["status"]
+    start = contest_row["start_epoch"]
+    end = start + contest_row["duration_min"] * 60
     e = discord.Embed(
         title=msg.lb_title(contest_row["name"]),
         color=0x2ecc71 if status == "running" else 0x95a5a6,
     )
+    # Live end-time / remaining line (Discord dynamic timestamps auto-update, so a
+    # silent edit still shows the correct "残りN分" without re-sending).
+    time_line = msg.lb_time_line(end, status)
+
+    # AC cells show the confirmed time as elapsed-from-start (mm:ss). With many
+    # problems (hardcore) mm:ss is too wide for a phone, so fall back to minutes-only.
+    compact = len(problems) > 6
+
+    def fmt_time(epoch):
+        elapsed = max(0, epoch - start)
+        if compact:
+            return str(elapsed // 60)          # minutes only
+        m, s = divmod(elapsed, 60)
+        return f"{m}:{s:02d}"
 
     # Every JOINED participant is a row (0-solve ones show all ·).
     entries = []
@@ -122,18 +141,28 @@ def leaderboard_embed(contest_row) -> discord.Embed:
             "last": info["last_solve"] if info else None,
             "solved": smap.get(p["discord_id"], set()),
             "presolved": pmap.get(p["discord_id"], set()),
+            "times": tmap.get(p["discord_id"], {}),
         })
     if not entries:
-        e.description = msg.LB_EMPTY
+        e.description = time_line + msg.LB_EMPTY
         e.set_footer(text=msg.lb_footer(max_pts, len(problems), status))
         return e
     # Rank: points desc, then earliest last-solve (non-solvers last).
     entries.sort(key=lambda x: (-x["pts"], x["last"] if x["last"] is not None else float("inf")))
 
-    # Monospace table: rank | name | pts | one ✓/· column per problem.
+    def mark(pid, ent):
+        if pid in ent["presolved"]:
+            return "x"          # already solved before joining -> 0 pts
+        if pid in ent["solved"]:
+            return fmt_time(ent["times"].get(pid, 0))
+        return "·"
+
+    # Monospace table: rank | name | pts | one time/·/x column per problem.
     name_w = min(max(len(e2["name"]) for e2 in entries), 14)
     headers = [f"P{p['problem_id']}" for p in problems]
-    col_w = [max(len(h), 3) for h in headers]
+    body_marks = [[mark(p["problem_id"], ent) for p in problems] for ent in entries]
+    col_w = [max(len(headers[i]), 3,
+                 *(len(row[i]) for row in body_marks)) for i in range(len(problems))]
 
     def line(rank, name, pts, marks):
         cells = " ".join(marks[i].center(col_w[i]) for i in range(len(marks)))
@@ -141,22 +170,16 @@ def leaderboard_embed(contest_row) -> discord.Embed:
 
     head = (f"{'#':>2} {'name'.ljust(name_w)} {'pts':>4} "
             + " ".join(headers[i].center(col_w[i]) for i in range(len(headers))))
-    body = []
-    def mark(pid, ent):
-        if pid in ent["presolved"]:
-            return "x"          # already solved before joining -> 0 pts
-        return "✓" if pid in ent["solved"] else "·"
-
-    for i, ent in enumerate(entries, 1):
-        marks = [mark(p["problem_id"], ent) for p in problems]
-        body.append(line(i, ent["name"], ent["pts"], marks))
-    e.description = "```\n" + head + "\n" + "\n".join(body) + "\n```"
+    body = [line(i, ent["name"], ent["pts"], body_marks[i - 1])
+            for i, ent in enumerate(entries, 1)]
+    e.description = time_line + "```\n" + head + "\n" + "\n".join(body) + "\n```"
     e.set_footer(text=msg.lb_footer(max_pts, len(problems), status))
     return e
 
 
 def record_contest_performances(contest_row):
-    """At contest finish, store each participant's AtCoder-style performance.
+    """At contest finish, store each participant's performance (shaped by the contest
+    FORMAT), then snapshot their post-contest rating (for /profile's +delta / highest).
     Only participants who solved >=1 (i.e. appear in the leaderboard) get one, so
     skipping/not-solving never records a (rating-lowering) performance."""
     cid = contest_row["id"]
@@ -166,9 +189,29 @@ def record_contest_performances(contest_row):
     max_pts = sum(p["difficulty"] for p in db.contest_problems(cid)) or 1
     field = len(lb)
     at = int(time.time())
+    spec = contest_mod.CONTEST_TYPES.get(contest_row["contest_type"], {})
+    cap, floor = spec.get("perf_cap"), spec.get("loss_floor", 0.0)
     for i, r in enumerate(lb):
-        perf = rating.performance(i + 1, field, r["pts"] or 0, max_pts)
+        perf = rating.performance(i + 1, field, r["pts"] or 0, max_pts,
+                                  perf_cap=cap, loss_floor=floor)
         db.record_performance(r["discord_id"], cid, perf, at)
+    # Snapshot the post-contest rating (decay=0 at finish => un-decayed) per participant.
+    for r in lb:
+        perfs = [p["perf"] for p in db.user_performances(r["discord_id"])]
+        comp = rating.compute(perfs, at, at)
+        if comp:
+            db.record_rating_snapshot(r["discord_id"], cid, comp["rating"], at)
+
+
+async def _ping(channel):
+    """Play the channel's notification sound without leaving residue: send a tiny
+    message and immediately retract it. Editing an embed is silent, so this is how a
+    leaderboard update makes a sound (no special permissions needed)."""
+    try:
+        m = await channel.send("🔔")
+        await m.delete()
+    except Exception:
+        pass
 
 
 async def refresh_leaderboard(contest_row):
@@ -182,10 +225,11 @@ async def refresh_leaderboard(contest_row):
         try:
             existing = await channel.fetch_message(msg_id)
             await existing.edit(embed=embed)
+            await _ping(channel)   # the edit is silent — chime so players notice
             return
         except discord.NotFound:
             pass
-    sent = await channel.send(embed=embed)
+    sent = await channel.send(embed=embed)  # a fresh send already chimes
     db.set_leaderboard_message(contest_row["id"], sent.id)
 
 
@@ -248,8 +292,9 @@ async def register(interaction: discord.Interaction, pe_username: str, friend_ke
 def _contest_type_choices():
     out = []
     for k, v in contest_mod.CONTEST_TYPES.items():
+        recipe = contest_mod.recipe_summary(v)
         out.append(app_commands.Choice(
-            name=f"{v['label']}（難易度{v['min']}-{v['max']}% / {v['num']}問 / {v['duration']}分）",
+            name=f"{v['label']}（{recipe} / {v['duration']}分）"[:100],
             value=k))
     return out
 
@@ -258,7 +303,7 @@ def _contest_type_choices():
 @app_commands.describe(
     start="開始時刻: '21:00'(今日) / '07-15 21:00' / '2026-07-15 21:00'（"
           + str(config.TIMEZONE) + "・過去は不可）",
-    contest_type="難易度タイプ（問題数・制限時間もこれで決まるにゃ）",
+    contest_type="開催形式（問題構成・制限時間もこれで決まるにゃ）",
 )
 @app_commands.choices(contest_type=_contest_type_choices())
 async def create_contest(interaction: discord.Interaction, start: str,
@@ -279,8 +324,10 @@ async def create_contest(interaction: discord.Interaction, start: str,
 
     when = datetime.fromtimestamp(start_epoch, config.TIMEZONE).strftime("%m-%d %H:%M")
     name = f"{spec['label']}コンテスト {when}"
+    # hardcore's problem count depends on the randomly-drawn variant; store a nominal
+    # now (0 = unknown) and set the real count at draw time (_draw_contest).
     cid = db.create_contest(name, start_epoch, spec["duration"], contest_type.value,
-                            spec["num"], interaction.guild_id,
+                            contest_mod.total_num(spec) or 0, interaction.guild_id,
                             interaction.channel_id, interaction.user.id, draw_epoch)
     # Public recruiting announcement with Join/Leave buttons (no problems yet —
     # they're drawn at draw_epoch from whoever actually joined).
@@ -355,64 +402,8 @@ async def _record_presolved(contest_id: int, discord_id: int) -> list[int]:
     return pre
 
 
-class SubmitView(discord.ui.View):
-    def __init__(self, contest_row, pe_username: str, discord_id: int):
-        super().__init__(timeout=120)
-        self.contest_row = contest_row
-        self.pe_username = pe_username
-        self.discord_id = discord_id
-        options = []
-        for p in db.contest_problems(contest_row["id"]):
-            if db.has_solve(contest_row["id"], discord_id, p["problem_id"]):
-                continue
-            if db.is_presolved(contest_row["id"], discord_id, p["problem_id"]):
-                continue  # already solved before joining -> 0 pts, can't submit
-            options.append(discord.SelectOption(
-                label=f"Problem {p['problem_id']} — {p['difficulty']}pt",
-                description=(p["title"] or "")[:100],
-                value=str(p["problem_id"]),
-            ))
-        if options:
-            self.select = discord.ui.Select(
-                placeholder=msg.SELECT_PLACEHOLDER, options=options[:25])
-            self.select.callback = self.on_select
-            self.add_item(self.select)
-
-    async def on_select(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        pid = int(self.select.values[0])
-        if db.is_presolved(self.contest_row["id"], self.discord_id, pid):
-            await interaction.followup.send(msg.presolved_reject(pid), ephemeral=True)
-            return
-        try:
-            grid = await asyncio.to_thread(pe_client.fetch_progress_grid, self.pe_username)
-        except pe_client.ProgressUnavailable:
-            await interaction.followup.send(msg.cannot_read_progress(), ephemeral=True)
-            return
-        except pe_client.SessionExpired as e:
-            await interaction.followup.send(msg.session_expired(e), ephemeral=True)
-            return
-        if not pe_client._exposes_solve_status(grid):
-            await interaction.followup.send(msg.cannot_read_progress(), ephemeral=True)
-            return
-        cell = grid.get(pid)
-        if not cell or not cell.solved:
-            await interaction.followup.send(msg.not_solved(pid), ephemeral=True)
-            return
-        prob = next((p for p in db.contest_problems(self.contest_row["id"])
-                     if p["problem_id"] == pid), None)
-        points = prob["difficulty"] if prob else cell.difficulty
-        new = db.record_solve(self.contest_row["id"], self.discord_id, pid,
-                              points, cell.solved_epoch)
-        if not new:
-            await interaction.followup.send(msg.already_counted(pid), ephemeral=True)
-            return
-        await interaction.followup.send(
-            msg.submit_ok(interaction.user.display_name, pid, points), ephemeral=True)
-        await refresh_leaderboard(db.get_contest(self.contest_row["id"]))
-
-
-@tree.command(name="submit", description="ACした問題番号を提出するにゃ")
+@tree.command(name="submit",
+              description="ACした問題をまとめて確認・計上するにゃ（番号選択は不要）")
 async def submit(interaction: discord.Interaction):
     part = db.get_participant(interaction.user.id)
     if not part:
@@ -422,14 +413,44 @@ async def submit(interaction: discord.Interaction):
     if not contest_row:
         await interaction.response.send_message(msg.NO_RUNNING, ephemeral=True)
         return
-    if not db.is_joined(contest_row["id"], interaction.user.id):
+    cid = contest_row["id"]
+    uid = interaction.user.id
+    if not db.is_joined(cid, uid):
         await interaction.response.send_message(msg.NOT_JOINED, ephemeral=True)
         return
-    view = SubmitView(contest_row, part["pe_username"], interaction.user.id)
-    if not view.children:
+    # Every contest problem this user hasn't already been credited for (and didn't
+    # solve before joining). We check ALL of them against PE in one pass.
+    candidates = [p for p in db.contest_problems(cid)
+                  if not db.has_solve(cid, uid, p["problem_id"])
+                  and not db.is_presolved(cid, uid, p["problem_id"])]
+    if not candidates:
         await interaction.response.send_message(msg.NOTHING_TO_SUBMIT, ephemeral=True)
         return
-    await interaction.response.send_message(msg.SUBMIT_PROMPT, view=view, ephemeral=True)
+    await interaction.response.defer(ephemeral=True)   # PE fetch is slow
+    try:
+        grid = await asyncio.to_thread(pe_client.fetch_progress_grid, part["pe_username"])
+    except pe_client.ProgressUnavailable:
+        await interaction.followup.send(msg.cannot_read_progress(), ephemeral=True)
+        return
+    except pe_client.SessionExpired as e:
+        await interaction.followup.send(msg.session_expired(e), ephemeral=True)
+        return
+    if not pe_client._exposes_solve_status(grid):
+        await interaction.followup.send(msg.cannot_read_progress(), ephemeral=True)
+        return
+    newly = []
+    for p in candidates:
+        pid = p["problem_id"]
+        cell = grid.get(pid)
+        if cell and cell.solved:
+            if db.record_solve(cid, uid, pid, p["difficulty"], cell.solved_epoch):
+                newly.append((pid, p["difficulty"]))
+    if not newly:
+        await interaction.followup.send(msg.submit_none_new(), ephemeral=True)
+        return
+    await interaction.followup.send(
+        msg.submit_batch_ok(interaction.user.display_name, newly), ephemeral=True)
+    await refresh_leaderboard(db.get_contest(cid))
 
 
 def is_owner(user: discord.abc.User) -> bool:
@@ -613,12 +634,13 @@ async def service(interaction: discord.Interaction):
     e.description = "\n".join([
         "**/register** `pe_username` `friend_key` — 参加登録",
         "**/create_contest** `start` `contest_type` — コンテスト作成（誰でも）",
-        "**/submit** — ACした問題を提出（開催中のみ）",
-        "**/leaderboard** — 順位表（参加者 × 各問題のAC状況）",
+        "**/submit** — ACした問題をまとめて確認・計上（開催中のみ）",
+        "**/leaderboard** — 順位表（参加者 × 各問題のAC時刻）",
         "**/recommend** `problem_id` — 問題を推薦（投票）",
         "**/recommendations** — 人気のおすすめ問題（未ACのみ・最大5件）",
         "**/tweet** — 最後のコンテスト結果のツイート文を生成",
         "**/rating** — コミュニティ・レーティング（AtCoder風・非活動で減衰）",
+        "**/profile** `pe_username` — 指定ユーザの詳しいレート（+差分・最高）",
         "**/introduce** — オイラーにゃんの自己紹介（10秒で消える）",
         "**/say** `message` `seconds` — 指定内容を喋らせる（指定秒で消える）",
         "**/feedback** `message` — 匿名でフィードバックを送る",
@@ -663,6 +685,35 @@ async def rating_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(embed=e)
 
 
+@tree.command(name="profile", description="指定PEユーザの詳しいレートを表示するにゃ")
+@app_commands.describe(pe_username="見たいPEユーザ名")
+async def profile_cmd(interaction: discord.Interaction, pe_username: str):
+    part = db.get_participant_by_pe(pe_username)
+    if not part:
+        await interaction.response.send_message(
+            msg.profile_not_found(pe_username), ephemeral=True)
+        return
+    perfs = db.user_performances(part["discord_id"])   # recent first
+    snaps = db.rating_snapshots(part["discord_id"])     # oldest first
+    if not perfs or not snaps:
+        await interaction.response.send_message(
+            msg.profile_no_rating(part["pe_username"]), ephemeral=True)
+        return
+    now = int(time.time())
+    last = max(p["at_epoch"] for p in perfs)
+    live = rating.compute([p["perf"] for p in perfs], last, now)
+    # AtCoder-style triple uses the (un-decayed) snapshots so +delta / highest stay
+    # consistent; the live decayed value is shown separately as an extra note.
+    current = snaps[-1]["rating"]
+    prev = snaps[-2]["rating"] if len(snaps) >= 2 else 0
+    delta = current - prev
+    highest = max(s["rating"] for s in snaps)
+    e = discord.Embed(title=msg.profile_title(part["pe_username"]), color=0x9b59b6)
+    e.description = msg.profile_body(current, delta, highest, live, len(snaps))
+    e.set_footer(text=msg.rating_footer())
+    await interaction.response.send_message(embed=e)
+
+
 # ---------------------------------------------------------------- scheduler
 
 def _problem_list_md(problems) -> str:
@@ -698,6 +749,7 @@ async def _draw_contest(contest_row):
             await channel.send(msg.draw_failed(contest_row["name"], e))
         return
     db.add_contest_problems(cid, problems)
+    db.set_num_problems(cid, len(problems))   # actual count (hardcore variant now known)
     db.set_contest_status(cid, "scheduled")
     if channel:
         await channel.send(msg.contest_drawn(
