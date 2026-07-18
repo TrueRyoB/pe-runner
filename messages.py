@@ -96,9 +96,11 @@ def select_fail(err) -> str:
 
 def contest_recruiting(name: str, joined_ids: list[int], when: str = "") -> str:
     who = " ".join(f"<@{i}>" for i in joined_ids) if joined_ids else "---"
-    head = f"{name} {when}".rstrip()
+    head = f"{name} 開催"
+    if when:
+        head += f" | {when}"
     return (f"**{head}**\n"
-            f"参加登録受付中!\n\n"
+            f"参加登録 受付中!\n\n"
             f"参加者: {who}")
 
 

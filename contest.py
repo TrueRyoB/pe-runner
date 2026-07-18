@@ -53,6 +53,17 @@ CONTEST_TYPES: dict[str, dict] = {
 }
 
 
+def display_name(name: str, contest_type: str) -> str:
+    """'EFC001' -> 'Euler Fast Contest 001' — expand the code to the full format name."""
+    spec = CONTEST_TYPES.get(contest_type, {})
+    full = spec.get("name")
+    if not full:
+        return name
+    code = spec.get("code", "")
+    serial = name[len(code):] if name.startswith(code) else name
+    return f"{full} {serial}".rstrip()
+
+
 def total_num(spec: dict) -> int | None:
     """Fixed problem count, or None when it depends on the drawn variant."""
     if "variants" in spec:

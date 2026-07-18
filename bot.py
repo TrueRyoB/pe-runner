@@ -332,25 +332,34 @@ async def create_contest(interaction: discord.Interaction, start: str,
     # Public recruiting announcement with Join/Leave buttons (no problems yet —
     # they're drawn at draw_epoch from whoever actually joined).
     sent = await interaction.channel.send(
-        msg.contest_recruiting(name, [], _time_range(contest_type.value, start_epoch)),
+        msg.contest_recruiting(
+            contest_mod.display_name(name, contest_type.value), [],
+            _time_range(contest_type.value, start_epoch)),
         view=JoinView())
     db.set_join_message(cid, sent.id)
     await interaction.followup.send(msg.create_ack(), ephemeral=True)
 
 
 def _time_range(contest_type: str, start_epoch: int) -> str:
-    """Compact JST time range for recruiting/draw copy: '7/19 9:30 〜 9:45'.
-    Adds the end date only when the contest spills into another day."""
+    """Compact JST time range for recruiting/draw copy: '19日 09:30-09:45'.
+    Shows the day only; adds the end day when the contest spills into another day,
+    and prefixes the month on either endpoint when start and end fall in different months."""
     spec = contest_mod.CONTEST_TYPES.get(contest_type, {})
     dur = spec.get("duration", 0)
     start = datetime.fromtimestamp(start_epoch, config.TIMEZONE)
     end = datetime.fromtimestamp(start_epoch + dur * 60, config.TIMEZONE)
-    s = f"{start.month}/{start.day} {start.hour}:{start.minute:02d}"
-    if (end.year, end.month, end.day) == (start.year, start.month, start.day):
-        e = f"{end.hour}:{end.minute:02d}"
-    else:
-        e = f"{end.month}/{end.day} {end.hour}:{end.minute:02d}"
-    return f"{s} 〜 {e}"
+    same_day = (start.year, start.month, start.day) == (end.year, end.month, end.day)
+    same_month = (start.year, start.month) == (end.year, end.month)
+
+    def day(dt: datetime) -> str:
+        return f"{dt.day}日" if same_month else f"{dt.month}月{dt.day}日"
+
+    def hm(dt: datetime) -> str:
+        return f"{dt.hour:02d}:{dt.minute:02d}"
+
+    if same_day:
+        return f"{day(start)} {hm(start)}-{hm(end)}"
+    return f"{day(start)} {hm(start)}-{day(end)} {hm(end)}"
 
 
 class JoinView(discord.ui.View):
@@ -366,7 +375,8 @@ class JoinView(discord.ui.View):
         try:
             await interaction.message.edit(
                 content=msg.contest_recruiting(
-                    c["name"], ids, _time_range(c["contest_type"], c["start_epoch"])),
+                    contest_mod.display_name(c["name"], c["contest_type"]), ids,
+                    _time_range(c["contest_type"], c["start_epoch"])),
                 view=self, allowed_mentions=discord.AllowedMentions.none())
         except Exception:
             pass
