@@ -33,32 +33,24 @@ BANDS: dict[str, tuple[int, int]] = {
 # alternative recipes, one picked at random per contest at draw time.
 CONTEST_TYPES: dict[str, dict] = {
     "normal": {
-        "label": "ノーマル", "code": "ERC", "duration": 100,   # Euler Regular Contest
+        "name": "Euler Regular Contest", "label": "ノーマル", "code": "ERC",
+        "duration": 100,
         "slots": [("簡単", 1), ("中下位", 2), ("中上位", 2), ("上位", 1)],
         "perf_cap": None, "loss_floor": 0.0,
     },
     "hardcore": {
-        "label": "ハードコア", "code": "EHC", "duration": 240,  # Euler HardCore
+        "name": "Euler HardCore Contest", "label": "ハードコア", "code": "EHC",
+        "duration": 240,
         "variants": [[("中位", 10)], [("上上位", 4)]],  # random one at draw
         "perf_cap": None, "loss_floor": 0.35,           # 負けより勝ちを優先
     },
     "speed": {
-        "label": "スピード", "code": "EFC", "duration": 15,     # Euler Fast Contest
+        "name": "Euler Fast Contest", "label": "スピード", "code": "EFC",
+        "duration": 15,
         "slots": [("簡単", 2), ("中位", 1)],
         "perf_cap": 0.6, "loss_floor": 0.0,             # 荒稼ぎ防止
     },
 }
-
-
-def _slots_str(slots: list[tuple[str, int]]) -> str:
-    return "・".join(f"{band}×{n}" for band, n in slots)
-
-
-def recipe_summary(spec: dict) -> str:
-    """Human recipe for a format (for the /create_contest choice label)."""
-    if "variants" in spec:
-        return " または ".join(_slots_str(v) for v in spec["variants"])
-    return _slots_str(spec["slots"])
 
 
 def total_num(spec: dict) -> int | None:

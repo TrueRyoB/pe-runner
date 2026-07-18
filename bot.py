@@ -292,9 +292,8 @@ async def register(interaction: discord.Interaction, pe_username: str, friend_ke
 def _contest_type_choices():
     out = []
     for k, v in contest_mod.CONTEST_TYPES.items():
-        recipe = contest_mod.recipe_summary(v)
         out.append(app_commands.Choice(
-            name=f"{v['label']}（{recipe} / {v['duration']}分）"[:100],
+            name=f"{v['name']} ({v['code']}) | {v['duration']} m"[:100],
             value=k))
     return out
 
@@ -333,19 +332,25 @@ async def create_contest(interaction: discord.Interaction, start: str,
     # Public recruiting announcement with Join/Leave buttons (no problems yet —
     # they're drawn at draw_epoch from whoever actually joined).
     sent = await interaction.channel.send(
-        msg.contest_recruiting(name, [], _recruit_subtitle(contest_type.value, start_epoch)),
+        msg.contest_recruiting(name, [], _time_range(contest_type.value, start_epoch)),
         view=JoinView())
     db.set_join_message(cid, sent.id)
     await interaction.followup.send(msg.create_ack(), ephemeral=True)
 
 
-def _recruit_subtitle(contest_type: str, start_epoch: int) -> str:
-    """Context line under the terse code (ERC001): format, duration, recipe, start."""
+def _time_range(contest_type: str, start_epoch: int) -> str:
+    """Compact JST time range for recruiting/draw copy: '7/19 9:30 〜 9:45'.
+    Adds the end date only when the contest spills into another day."""
     spec = contest_mod.CONTEST_TYPES.get(contest_type, {})
-    label = spec.get("label", contest_type)
-    dur = spec.get("duration", "?")
-    recipe = contest_mod.recipe_summary(spec) if spec else ""
-    return f"{label}・{dur}分・{recipe}・開始 <t:{start_epoch}:F>"
+    dur = spec.get("duration", 0)
+    start = datetime.fromtimestamp(start_epoch, config.TIMEZONE)
+    end = datetime.fromtimestamp(start_epoch + dur * 60, config.TIMEZONE)
+    s = f"{start.month}/{start.day} {start.hour}:{start.minute:02d}"
+    if (end.year, end.month, end.day) == (start.year, start.month, start.day):
+        e = f"{end.hour}:{end.minute:02d}"
+    else:
+        e = f"{end.month}/{end.day} {end.hour}:{end.minute:02d}"
+    return f"{s} 〜 {e}"
 
 
 class JoinView(discord.ui.View):
@@ -361,12 +366,12 @@ class JoinView(discord.ui.View):
         try:
             await interaction.message.edit(
                 content=msg.contest_recruiting(
-                    c["name"], ids, _recruit_subtitle(c["contest_type"], c["start_epoch"])),
+                    c["name"], ids, _time_range(c["contest_type"], c["start_epoch"])),
                 view=self, allowed_mentions=discord.AllowedMentions.none())
         except Exception:
             pass
 
-    @discord.ui.button(label="参加する / 取り消す 🙋", style=discord.ButtonStyle.primary,
+    @discord.ui.button(label="参加する / 取り消す", style=discord.ButtonStyle.primary,
                        custom_id="contest_toggle")
     async def toggle(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
@@ -764,8 +769,9 @@ async def _draw_contest(contest_row):
     db.set_contest_status(cid, "scheduled")
     if channel:
         await channel.send(msg.contest_drawn(
-            contest_row["name"], contest_row["start_epoch"],
-            _problem_list_md(problems), db.joined_count(cid)))
+            contest_row["name"],
+            _time_range(contest_row["contest_type"], contest_row["start_epoch"]),
+            _problem_list_md(problems)))
 
 
 @tasks.loop(seconds=30)
@@ -785,7 +791,8 @@ async def scheduler():
                 lst = "\n".join(
                     f"• [Problem {p['problem_id']}](https://projecteuler.net/problem={p['problem_id']}) "
                     f"— {p['difficulty']}pt" for p in probs)
-                await channel.send(msg.contest_start(c["name"], c["duration_min"], lst))
+                await channel.send(msg.contest_start(
+                    c["name"], _time_range(c["contest_type"], c["start_epoch"]), lst))
                 await refresh_leaderboard(db.get_contest(c["id"]))
     # running -> finished
     for c in db.contests_by_status("running"):
