@@ -64,16 +64,25 @@ def display_name(name: str, contest_type: str) -> str:
     return f"{full} {serial}".rstrip()
 
 
-def total_num(spec: dict) -> int | None:
-    """Fixed problem count, or None when it depends on the drawn variant."""
-    if "variants" in spec:
-        return None
-    return sum(n for _, n in spec["slots"])
+def resolve_num_problems(contest_type: str, rng: random.Random | None = None) -> int:
+    """Problem count fixed at CREATE time — draws the random variant (hardcore) now
+    so the recruiting copy can commit to it. The draw later reproduces this exact
+    count via select_problems(..., num=...)."""
+    spec = CONTEST_TYPES[contest_type]
+    rng = rng or random.Random()
+    return sum(n for _, n in _resolve_slots(spec, rng))
 
 
-def _resolve_slots(spec: dict, rng: random.Random) -> list[tuple[str, int]]:
-    """Concrete recipe for one contest — resolves hardcore's random variant."""
+def _resolve_slots(spec: dict, rng: random.Random,
+                   num: int | None = None) -> list[tuple[str, int]]:
+    """Concrete recipe for one contest — resolves hardcore's random variant.
+    When `num` is given (a count committed at create time), pick the variant whose
+    total matches it instead of re-randomizing, so draw honors the announced count."""
     if "variants" in spec:
+        if num is not None:
+            for v in spec["variants"]:
+                if sum(n for _, n in v) == num:
+                    return list(v)
         return list(rng.choice(spec["variants"]))
     return list(spec["slots"])
 
@@ -89,15 +98,17 @@ def _spread_sample(sorted_pool: list, num: int, rng: random.Random) -> list:
 
 
 def select_problems(catalog: dict, excluded_ids: set[int], contest_type: str,
-                    rng: random.Random | None = None) -> list[dict]:
+                    rng: random.Random | None = None, num: int | None = None) -> list[dict]:
     """Pick a format's problems from the all-unsolved pool, per recipe slot.
     `catalog` maps id -> object with .id/.difficulty/.title. Problems are unique
-    across slots. Raises ValueError if any slot's band lacks enough unsolved problems."""
+    across slots. `num` (the count committed at create time) pins the variant so the
+    draw matches the announced count. Raises ValueError if any slot's band lacks
+    enough unsolved problems."""
     if contest_type not in CONTEST_TYPES:
         raise ValueError(f"unknown contest_type: {contest_type}")
     spec = CONTEST_TYPES[contest_type]
     rng = rng or random.Random()
-    slots = _resolve_slots(spec, rng)
+    slots = _resolve_slots(spec, rng, num)
 
     used = set(excluded_ids)   # never reuse a problem across slots (or an excluded one)
     chosen = []

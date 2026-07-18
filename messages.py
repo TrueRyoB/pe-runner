@@ -94,13 +94,17 @@ def select_fail(err) -> str:
             "難易度タイプをゆるめるか、問題数を減らしてみてにゃ。")
 
 
-def contest_recruiting(name: str, joined_ids: list[int], when: str = "") -> str:
+def contest_recruiting(name: str, joined_ids: list[int], when: str = "",
+                       duration: int = 0, num_problems: int = 0) -> str:
     who = " ".join(f"<@{i}>" for i in joined_ids) if joined_ids else "---"
     head = f"{name} 開催"
     if when:
         head += f" | {when}"
-    return (f"**{head}**\n"
-            f"参加登録 受付中!\n\n"
+    return (f"**{head}**\n\n"
+            f"**コンテスト情報**\n"
+            f"コンテスト時間: {duration} 分\n"
+            f"出題数: {num_problems} 問\n"
+            f"このコンテストでは、生成AIの使用を禁止しております。\n"
             f"参加者: {who}")
 
 

@@ -324,17 +324,19 @@ async def create_contest(interaction: discord.Interaction, start: str,
     # AtCoder-style code + per-format serial (ERC001 / EHC001 / EFC001), permanent.
     seq = db.count_contests_by_type(contest_type.value) + 1
     name = f"{spec['code']}{seq:03d}"
-    # hardcore's problem count depends on the randomly-drawn variant; store a nominal
-    # now (0 = unknown) and set the real count at draw time (_draw_contest).
+    # hardcore's problem count depends on a random variant; commit it NOW (create time)
+    # so recruiting can announce it. The draw reproduces this exact count later.
+    num_problems = contest_mod.resolve_num_problems(contest_type.value)
     cid = db.create_contest(name, start_epoch, spec["duration"], contest_type.value,
-                            contest_mod.total_num(spec) or 0, interaction.guild_id,
+                            num_problems, interaction.guild_id,
                             interaction.channel_id, interaction.user.id, draw_epoch)
     # Public recruiting announcement with Join/Leave buttons (no problems yet —
     # they're drawn at draw_epoch from whoever actually joined).
     sent = await interaction.channel.send(
         msg.contest_recruiting(
             contest_mod.display_name(name, contest_type.value), [],
-            _time_range(contest_type.value, start_epoch)),
+            _time_range(contest_type.value, start_epoch),
+            spec["duration"], num_problems),
         view=JoinView())
     db.set_join_message(cid, sent.id)
     await interaction.followup.send(msg.create_ack(), ephemeral=True)
@@ -376,12 +378,13 @@ class JoinView(discord.ui.View):
             await interaction.message.edit(
                 content=msg.contest_recruiting(
                     contest_mod.display_name(c["name"], c["contest_type"]), ids,
-                    _time_range(c["contest_type"], c["start_epoch"])),
+                    _time_range(c["contest_type"], c["start_epoch"]),
+                    c["duration_min"], c["num_problems"]),
                 view=self, allowed_mentions=discord.AllowedMentions.none())
         except Exception:
             pass
 
-    @discord.ui.button(label="参加する / 取り消す", style=discord.ButtonStyle.primary,
+    @discord.ui.button(label="Rated参加登録", style=discord.ButtonStyle.primary,
                        custom_id="contest_toggle")
     async def toggle(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
@@ -767,7 +770,8 @@ async def _draw_contest(contest_row):
     except pe_client.SessionExpired:
         return  # leave recruiting; retry on the next tick
     try:
-        problems = contest_mod.select_problems(catalog, excluded, contest_row["contest_type"])
+        problems = contest_mod.select_problems(
+            catalog, excluded, contest_row["contest_type"], num=contest_row["num_problems"])
     except ValueError as e:
         db.set_contest_status(cid, "finished")
         if channel:
