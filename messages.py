@@ -1,5 +1,11 @@
-"""All user-facing text, spoken by the mascot: オイラーにゃん — a friendly,
-math-loving cat 🐱. Keep persona consistent: warm, playful, gentle "にゃ" endings.
+"""All user-facing text, spoken by the mascot: オイラーにゃん.
+
+Two registers, split by OBJECTIVITY (objectivity is what reads as official):
+- Objective contest facts / records / operational status (recruiting, draw, start,
+  standings, ratings, AC confirmations, join records) → OFFICIAL: 丁寧語, concise,
+  no "にゃ", minimal emoji (conciseness is NOT emoji).
+- Relational / subjective moments (self-intro, error guidance, post-contest chatter,
+  social acks) → keep the mascot's playful "にゃ" voice.
 
 Centralized here so tone can be tuned in one place.
 """
@@ -57,7 +63,7 @@ REGISTER_PANEL_TEXT = (
 
 
 def create_ack() -> str:
-    return "✅ 参加受付を開始したにゃ！（みんなに公開したにゃ）"
+    return "参加受付を開始しました。（全体に公開しました）"
 
 
 def register_warn(count: int, limit: int) -> str:
@@ -90,49 +96,46 @@ def select_fail(err) -> str:
             "難易度タイプをゆるめるか、問題数を減らしてみてにゃ。")
 
 
-def contest_recruiting(name: str, joined_ids: list[int]) -> str:
-    who = " ".join(f"<@{i}>" for i in joined_ids) if joined_ids else "もぬけの空にゃ"
-    return (f"🎟️ **{name}** 参加受付中にゃ！\n"
-            f"下のボタンで参加にゃ！（もう一度押すと取り消し）\n\n"
+def contest_recruiting(name: str, joined_ids: list[int], subtitle: str = "") -> str:
+    who = " ".join(f"<@{i}>" for i in joined_ids) if joined_ids else "（まだいません）"
+    sub = f"　{subtitle}\n" if subtitle else ""   # no code span: <t:…> must render
+    return (f"**{name}** 参加受付中\n{sub}"
+            f"下のボタンから参加できます（もう一度押すと取り消し）。\n\n"
             f"**参加者({len(joined_ids)}):** {who}")
 
 
 def contest_drawn(name: str, start_epoch: int, problem_list: str, joined: int) -> str:
-    return (f"🎲 **{name}** の問題を抽選したにゃ！（参加 {joined}人・全員未AC）\n"
+    return (f"**{name}** の問題を抽選しました（参加 {joined}名・全員未AC）。\n"
             f"開始: <t:{start_epoch}:F>\n\n{problem_list}")
 
 
 def contest_no_joiners(name: str) -> str:
-    return f"😿 **{name}** は参加者がいなかったので中止にしたにゃ…"
+    return f"**{name}** は参加者がいなかったため中止しました。"
 
 
 def draw_failed(name: str, err) -> str:
-    return (f"😾 **{name}** の問題抽選に失敗したにゃ…（{err}）中止にするにゃ。")
+    return f"**{name}** の問題抽選に失敗したため中止します（{err}）。"
 
 
-JOIN_CLOSED = "🐾 このコンテストの参加受付はもう終わってるにゃ。"
+JOIN_CLOSED = "このコンテストの参加受付は終了しています。"
 NOT_JOINED = "🙋 このコンテストに参加してないにゃ。次回は受付中に「参加する」を押してにゃ！"
 
 
 def joined(display_name: str, count: int) -> str:
-    return f"🙋 {display_name}さん、参加登録したにゃ！（現在 {count}人）"
+    return f"{display_name} さんが参加しました（現在 {count}名）。"
 
 
 def left(display_name: str, count: int) -> str:
-    return f"🚪 {display_name}さん、参加を取り消したにゃ。（現在 {count}人）"
+    return f"{display_name} さんが参加を取り消しました（現在 {count}名）。"
 
 
-CANNOT_LEAVE = "🚪 受付は終了したので**退出はできない**にゃ（参加は続けられるにゃ）。"
+CANNOT_LEAVE = "受付終了後は退出できません（参加は継続されます）。"
 
 
 def late_join_presolved(pids: list[int]) -> str:
     ps = ", ".join(f"P{p}" for p in pids)
-    return (f"\n⚠️ 参加前に既にAC済みの問題があるにゃ（{ps}）。それらは順位表で **x**・"
-            f"**0点**扱いになるにゃ。")
-
-
-def presolved_reject(pid: int) -> str:
-    return f"🙅 Problem {pid} は参加前に既にAC済みだから0点にゃ（提出できないにゃ）。"
+    return (f"\n参加前にAC済みの問題があります（{ps}）。"
+            f"これらは順位表で **x**・**0点** 扱いになります。")
 
 
 # --- /submit ---
@@ -140,8 +143,6 @@ def presolved_reject(pid: int) -> str:
 NOT_REGISTERED = "🐾 まだ参加登録してないにゃ！`/register <PEユーザ名> <friend key>` で登録してにゃ！"
 NO_RUNNING = "😴 いまは開催中のコンテストがないにゃ〜。"
 NOTHING_TO_SUBMIT = "😺 提出できる問題がもうないにゃ！全部AC済みかもにゃ、すごいにゃ〜！"
-SELECT_PLACEHOLDER = "ACした問題を選ぶにゃ"
-SUBMIT_PROMPT = "😸 どの問題をACしたのニャ？選んでにゃ:"
 
 
 def cannot_read_progress() -> str:
@@ -149,18 +150,16 @@ def cannot_read_progress() -> str:
             "運営に確認してほしいにゃ。")
 
 
-def not_solved(pid: int) -> str:
-    return (f"🙀 Problem {pid} はまだACとして確認できないにゃ…\n"
-            "解けてたら少し待ってからもう一度試してにゃ！")
+def submit_batch_ok(display_name: str, newly: list) -> str:
+    total = sum(pts for _, pts in newly)
+    detail = "、".join(f"P{pid}(+{pts})" for pid, pts in newly)
+    return (f"{display_name} さん、{len(newly)}問のACを確認しました。"
+            f"{detail}（計 **+{total}ポイント**）。")
 
 
-def already_counted(pid: int) -> str:
-    return f"😹 Problem {pid} はもう計上済みだにゃ〜。"
-
-
-def submit_ok(display_name: str, pid: int, points: int) -> str:
-    return (f"🎉 {display_name}さん、Problem {pid} のAC確認したにゃ！ "
-            f"+{points}ポイントにゃ〜！やったにゃ！")
+def submit_none_new() -> str:
+    return ("🙀 まだ新しくACとして確認できた問題は無かったにゃ…\n"
+            "解けてたら少し待ってからもう一度 `/submit` してにゃ！")
 
 
 # --- /recommend & /recommendations ---
@@ -203,18 +202,42 @@ def feedback_cleared(n: int) -> str:
 NO_CONTEST_TWEET = "😿 まだツイートできるコンテストが無いにゃ。"
 
 
-RATING_EMPTY = "😿 まだレーティングが無いにゃ（コンテストが1つ終わると付くにゃ）。"
-RATING_TITLE = "📈 コミュニティ・レーティングにゃ（AtCoder風・非活動で減衰）"
+RATING_EMPTY = "まだレーティングがありません（コンテストを1回完了すると付与されます）。"
+RATING_TITLE = "📈 コミュニティレーティング（AtCoder方式・非活動で減衰）"
 
 
 def rating_footer() -> str:
     return (f"参加時のみ変動・不参加で相対低下なし / "
-            f"{int(rating_half_life())}日で半減 · by オイラーにゃん🐾")
+            f"{int(rating_half_life())}日で半減 · オイラーにゃん")
 
 
 def rating_half_life() -> float:
     import rating as _r
     return _r.HALF_LIFE_DAYS
+
+
+# --- /profile ---
+
+def profile_not_found(pe_username: str) -> str:
+    return (f"🙀 `{pe_username}` の登録が見つからなかったにゃ…\n"
+            "PEユーザ名のスペルを確認してにゃ（登録済みの人だけ見れるにゃ）。")
+
+
+def profile_no_rating(pe_username: str) -> str:
+    return f"{pe_username} はまだレーティングがありません（コンテストを1回完了すると付与されます）。"
+
+
+def profile_title(pe_username: str) -> str:
+    return f"📊 {pe_username} のレーティング"
+
+
+def profile_body(current: int, delta: int, highest: int, live, n: int) -> str:
+    sign = f"+{delta}" if delta >= 0 else str(delta)
+    body = f"**{current}** ({sign}) (highest:{highest})\n{n}戦"
+    days = int(live["days_inactive"]) if live else 0
+    if live and days > 0:
+        body += f"\n※ 現在の実効レート **{live['rating']}**（{days}日非活動で減衰中）"
+    return body
 
 
 def tweet_panel(text: str, url: str) -> str:
@@ -229,23 +252,30 @@ NOT_BOT_MESSAGE = "🙀 ぉぃㇻ(bot)のメッセージだけ消せるにゃ。
 DELETED = "🗑️ 消したにゃ！"
 
 NO_CONTEST = "😿 まだコンテストがないにゃ。"
-LB_EMPTY = "🐾 まだ誰も提出してないにゃ。一番乗りはキミかもにゃ！"
+LB_EMPTY = "まだ提出がありません。"
 
 
 def lb_title(name: str) -> str:
-    return f"🏆 {name} — 順位表にゃ"
+    return f"🏆 {name} — 順位表"
 
 
 def lb_footer(max_pts: int, n: int, status: str) -> str:
     label = {"running": "開催中", "finished": "終了", "scheduled": "開始前"}.get(status, status)
-    return f"満点 {max_pts}pts / {n}問 · {label} · by オイラーにゃん🐾"
+    return f"満点 {max_pts}pts / {n}問 · {label} · オイラーにゃん"
+
+
+def lb_time_line(end_epoch: int, status: str) -> str:
+    """Live end-time / remaining line for the leaderboard (Discord dynamic timestamps)."""
+    if status == "finished":
+        return f"終了しました（<t:{end_epoch}:F>）\n"
+    return f"終了 <t:{end_epoch}:t> ・ 残り <t:{end_epoch}:R>\n"
 
 
 # --- scheduler events ---
 
 def contest_start(name: str, duration: int, problem_list: str) -> str:
-    return (f"🚀 **{name}** はじまるにゃ〜！（{duration}分間）みんな頑張るにゃ！\n"
-            f"ACしたら `/submit` で教えてにゃ🐾\n\n{problem_list}")
+    return (f"**{name}** を開始しました（制限時間 {duration}分）。\n"
+            f"ACしたら `/submit` で提出してください。\n\n{problem_list}")
 
 
 def contest_end(name: str) -> str:
