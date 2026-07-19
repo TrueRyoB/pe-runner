@@ -46,7 +46,7 @@ CONTEST_TYPES: dict[str, dict] = {
     },
     "speed": {
         "name": "Euler Fast Contest", "label": "スピード", "code": "EFC",
-        "duration": 15,
+        "duration": 30,
         "slots": [("簡単", 2), ("中位", 1)],
         "perf_cap": 0.6, "loss_floor": 0.0,             # 荒稼ぎ防止
     },
