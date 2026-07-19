@@ -10,7 +10,7 @@ import os
 import sys
 import threading
 import time
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -855,13 +855,30 @@ async def on_ready():
 class _HealthHandler(BaseHTTPRequestHandler):
     """Tiny HTTP endpoint so PaaS platforms (Render free) see a live web service
     and an external pinger (cron-job.org) can keep it awake. Also returns live
-    status JSON for remote diagnosis (guild IDs / sync counts / errors)."""
-    def do_GET(self):
-        body = json.dumps(STATUS).encode()
-        self.send_response(200)
+    status JSON for remote diagnosis (guild IDs / sync counts / errors), and a
+    read-only per-user rating summary at GET /stats?discord_id=<snowflake>."""
+    def _send_json(self, status: int, payload: dict):
+        body = json.dumps(payload).encode()
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(body)
+
+    def do_GET(self):
+        path = urlparse(self.path).path.rstrip("/")
+        if path.startswith("/api/rating/"):
+            discord_id = path[len("/api/rating/"):]
+            if not discord_id.isdigit():   # Discord snowflakes are numeric
+                self._send_json(400, {"error": "path must be /api/rating/<discord_id> (numeric)"})
+                return
+            stats = db.rating_summary(discord_id)
+            if stats is None:
+                self._send_json(404, {"error": "no rating for this discord_id", "discord_id": discord_id})
+                return
+            self._send_json(200, stats)
+            return
+        # Any other path: keepalive/health — MUST stay 200 so cron-job.org keeps us awake.
+        self._send_json(200, STATUS)
 
     def log_message(self, *args):  # silence access logs
         pass

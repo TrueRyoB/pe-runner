@@ -28,6 +28,43 @@ def conn():
     return _conn
 
 
+def rating_summary(discord_id) -> dict | None:
+    """Read-only rating summary for the HTTP API: {participations, rating_highest,
+    rating_current} keyed by a Discord snowflake, or None if the user has no rating
+    (unregistered, or registered but never in a rated contest).
+
+    Opens its OWN short-lived connection instead of the cached global conn(): the
+    keepalive HTTP server runs in a separate thread, and sqlite3 forbids using a
+    connection across threads. All three values come from rating_snapshots — 'current'
+    is the un-decayed post-contest rating (the headline /profile shows), NOT the
+    decay-adjusted /rating value.
+    """
+    if USING_TURSO:
+        import libsql_experimental as libsql
+        c = libsql.connect(database=config.TURSO_DATABASE_URL,
+                           auth_token=config.TURSO_AUTH_TOKEN)
+    else:
+        c = sqlite3.connect(config.DB_PATH)
+    try:
+        cur = c.execute(
+            "SELECT rating FROM rating_snapshots WHERE discord_id=? "
+            "ORDER BY at_epoch ASC", (str(discord_id),))
+        ratings = [r[0] for r in cur.fetchall()]
+    finally:
+        try:
+            c.close()
+        except Exception:
+            pass
+    if not ratings:
+        return None
+    return {
+        "discord_id": str(discord_id),
+        "participations": len(ratings),
+        "rating_highest": max(ratings),
+        "rating_current": ratings[-1],
+    }
+
+
 def _cursor(sql: str, params=()):
     c = conn()
     return c.execute(sql, tuple(params)) if params else c.execute(sql)
